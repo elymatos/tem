@@ -1,0 +1,35 @@
+# 2D grid world dataset configuration.
+# Environment settings match Whittington et al. (2018, 2021):
+#   - Square grids of width [8, 10, 12], 4-connected + stay action.
+#   - 45 sensory classes assigned uniformly at random to nodes.
+#   - Default grid size 10 × 10.
+
+dataset:
+  name: grid2d
+
+  # Grid dimensions (paper: 8, 10, or 12)
+  height: 20
+  width: 20
+
+  # Paper: 5 actions — N, E, S, W, stay
+  n_actions: 5
+
+  # Paper: 45 sensory classes
+  n_sensory: 45
+
+  # Boundary behaviour: stay (agent cannot leave grid)
+  boundary: stay
+
+  # Paper: BPTT truncation = 25 steps.
+  # During training, trajectories are truncated to this length.
+  # Full-length episodes (200) are used for evaluation.
+  episode_length: 400
+  truncation_len: 25
+
+  # Paper: ~200-300 training environments, tested across grid widths.
+  n_train_envs: 300
+  n_val_envs: 100
+  n_test_envs: 100
+
+  # Sensory assignment: each node receives a random sensory class
+  sensory_assignment: random_with_replacement

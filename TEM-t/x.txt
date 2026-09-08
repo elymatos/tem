@@ -1,0 +1,3 @@
+create a HTML file in /home/ematos/devel/tem/TEM-t/ using plain english and many diagrams to explain as a guide the
+  execution of TEM-t implementation: its premisses, processes and results; with a clear explanation about the
+  meaning of each metric used and evaluated.

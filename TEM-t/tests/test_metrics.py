@@ -175,3 +175,65 @@ class TestRemappingScore:
         rm = torch.rand(10, 10)
         score = remapping_score(rm, rm)
         assert abs(score - 1.0) < 1e-5
+
+
+# ---------------------------------------------------------------------------
+# gridness_score: validation against synthetic patterns
+#
+# Regression guard. A previous implementation omitted the fftshift on the FFT
+# autocorrelogram and the annulus mask, which made it score a perfect
+# hexagonal grid (-0.21) the same as random noise (-0.15) -- i.e. it could not
+# detect a grid cell at all. These tests fail loudly if that regresses.
+# ---------------------------------------------------------------------------
+def _hex_grid(h=20, w=20, spacing=5.0, phase=(0.0, 0.0)):
+    """Ideal hexagonal grid: sum of three plane waves 60 degrees apart."""
+    import math as _m
+    ys, xs = torch.meshgrid(
+        torch.arange(h, dtype=torch.float32),
+        torch.arange(w, dtype=torch.float32),
+        indexing="ij",
+    )
+    k = 2 * _m.pi / spacing
+    out = torch.zeros(h, w)
+    for ang in (0.0, 60.0, 120.0):
+        a = _m.radians(ang)
+        out = out + torch.cos(
+            k * ((xs - phase[0]) * _m.cos(a) + (ys - phase[1]) * _m.sin(a))
+        )
+    return out
+
+
+class TestGridnessScore:
+    def test_hexagonal_grid_scores_above_threshold(self):
+        """A perfect hexagonal grid must exceed the 0.3 grid-cell threshold."""
+        for spacing in (3.0, 4.0, 5.0, 8.0):
+            score = gridness_score(_hex_grid(20, 20, spacing))
+            assert score > 0.3, f"spacing={spacing} scored {score:.3f}, expected > 0.3"
+
+    def test_hexagonal_grid_beats_noise(self):
+        """Grid must score well above random noise -- the core discrimination."""
+        torch.manual_seed(0)
+        grid = gridness_score(_hex_grid(20, 20, 5.0))
+        noise = max(
+            gridness_score(torch.randn(20, 20)) for _ in range(5)
+        )
+        assert grid > noise + 0.3, f"grid {grid:.3f} vs noise {noise:.3f}"
+
+    def test_grid_score_is_phase_invariant(self):
+        """Gridness must not depend on where the lattice sits."""
+        scores = [
+            gridness_score(_hex_grid(20, 20, 5.0, phase=(dx, dy)))
+            for dx, dy in ((0, 0), (1.3, 0), (0, 2.1), (2.5, 1.7))
+        ]
+        assert max(scores) - min(scores) < 0.25, f"phase-dependent: {scores}"
+
+    def test_non_grid_patterns_score_low(self):
+        """A linear ramp has no hexagonal structure."""
+        ramp = torch.arange(400, dtype=torch.float32).reshape(20, 20)
+        assert gridness_score(ramp) < 0.3
+
+    def test_constant_map_returns_zero(self):
+        assert gridness_score(torch.ones(10, 10)) == 0.0
+
+    def test_returns_python_float(self):
+        assert isinstance(gridness_score(_hex_grid()), float)

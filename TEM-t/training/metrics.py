@@ -9,6 +9,7 @@ Includes:
 """
 
 from typing import Optional, Tuple
+import math
 
 import torch
 import torch.nn.functional as F
@@ -212,16 +213,33 @@ def compute_memory_rate_maps(
 def gridness_score(
     rate_map_2d: torch.FloatTensor,
     angles: Tuple[int, ...] = (30, 60, 90, 120, 150),
+    smooth_sigma: float = 1.0,
+    inner_frac: float = 0.15,
 ) -> float:
     """Compute the gridness score for a 2D rate map.
 
-    Gridness quantifies hexagonal periodic structure:
-    1. Compute the 2D spatial autocorrelation of the rate map.
-    2. Rotate the autocorrelogram by each angle.
-    3. Compute Pearson correlation between original and rotated maps.
-    4. gridness = min(corr_60, corr_120) - max(corr_30, corr_90, corr_150).
+    Standard Sargolini/Hafting-style gridness:
+    1. Optionally smooth the rate map spatially.
+    2. Compute the 2D spatial autocorrelogram, centred on zero lag.
+    3. Mask out the central peak and the far field, keeping an annulus.
+    4. Rotate the annulus by each angle and correlate with the original.
+    5. gridness = min(corr_60, corr_120) - max(corr_30, corr_90, corr_150).
 
-    Positive gridness indicates a 6-fold symmetric (grid-like) pattern.
+    Positive gridness indicates 6-fold (hexagonal) symmetry. A score of
+    0.3-0.5 is conventionally taken as the grid-cell threshold.
+
+    Notes
+    -----
+    Three details are essential and easy to get wrong:
+
+    - The FFT autocorrelation puts zero lag at index [0, 0], so the result
+      MUST be fftshift-ed before the central region is taken. Without this
+      the rotational correlations are computed on a misaligned map and even
+      a perfect hexagonal grid scores negative.
+    - The central peak must be excluded. It is rotationally symmetric at
+      every angle and otherwise dominates all correlations.
+    - Correlations are computed only over pixels that remain in-bounds after
+      rotation, so that zero-fill from the rotation does not bias the result.
 
     Parameters
     ----------
@@ -229,82 +247,86 @@ def gridness_score(
         Spatial rate map for a single unit.
     angles : tuple of int
         Rotation angles to test. Default (30, 60, 90, 120, 150).
+    smooth_sigma : float
+        Gaussian smoothing sigma in bins; 0 disables. Default 1.0.
+    inner_frac : float
+        Inner annulus radius as a fraction of the outer radius, excluding
+        the central peak. Default 0.15.
 
     Returns
     -------
     float
-        Gridness score.
+        Gridness score. Returns 0.0 for a map with no variance.
     """
-    import torch.fft
+    rm = rate_map_2d.float()
+    device = rm.device
 
-    H, W = rate_map_2d.shape
-    device = rate_map_2d.device
+    if rm.std() < 1e-8:
+        return 0.0
 
-    # Detrend: subtract the mean
-    rm = rate_map_2d - rate_map_2d.mean()
+    # 1. Spatial smoothing (separable Gaussian)
+    if smooth_sigma and smooth_sigma > 0:
+        r = max(1, int(3 * smooth_sigma))
+        x = torch.arange(-r, r + 1, dtype=torch.float32, device=device)
+        k = torch.exp(-x.pow(2) / (2 * smooth_sigma ** 2))
+        k = k / k.sum()
+        rm = F.conv2d(rm[None, None], k.view(1, 1, -1, 1), padding=(r, 0))
+        rm = F.conv2d(rm, k.view(1, 1, 1, -1), padding=(0, r))[0, 0]
 
-    # 2D autocorrelation via FFT
-    # Pad to avoid circular wrap-around effects
-    pad_h, pad_w = H // 2, W // 2
+    rm = rm - rm.mean()
+    H, W = rm.shape
 
-    # Use rfft2 for real input
-    rm_pad = F.pad(rm.unsqueeze(0).unsqueeze(0), (pad_w, pad_w, pad_h, pad_h))
-    # Shift to centre
-    # FFT-based autocorrelation: ifft2(|fft2(x)|^2)
-    f = torch.fft.rfft2(rm_pad)
-    power = f.real.pow(2) + f.imag.pow(2)
-    autocorr_full = torch.fft.irfft2(power).squeeze(0).squeeze(0)
+    # 2. Linear autocorrelation via zero-padded FFT, then shift zero lag to centre
+    padded = F.pad(rm[None, None], (W, W, H, H))
+    f = torch.fft.fft2(padded)
+    ac = torch.fft.ifft2(f * f.conj()).real[0, 0]
+    ac = torch.fft.fftshift(ac)
 
-    # Take the central (H, W) region
-    ac = autocorr_full[
-        pad_h : pad_h + H,
-        pad_w : pad_w + W,
-    ]
-
-    # Normalise
+    cy, cx = ac.shape[0] // 2, ac.shape[1] // 2
+    radius = min(H, W) - 1
+    ac = ac[cy - radius : cy + radius + 1, cx - radius : cx + radius + 1]
     ac = ac / (ac.max() + 1e-8)
 
-    # Helper: rotate a 2D tensor by an angle using affine grid
+    # 3. Annulus mask: drop the central peak and anything beyond the outer radius
+    n = ac.shape[0]
+    c = n // 2
+    coords = torch.arange(n, dtype=torch.float32, device=device) - c
+    yy, xx = torch.meshgrid(coords, coords, indexing="ij")
+    rad = torch.sqrt(yy.pow(2) + xx.pow(2))
+    annulus = (rad > inner_frac * radius) & (rad <= radius)
+
     def _rotate(t: torch.Tensor, angle_deg: float) -> torch.Tensor:
         """Rotate a 2D tensor by angle_deg degrees about its centre."""
-        theta = angle_deg * (3.1415926535 / 180.0)
-        cos_a, sin_a = torch.cos(torch.tensor(theta)), torch.sin(torch.tensor(theta))
+        theta = math.radians(angle_deg)
         rot_mat = torch.tensor(
-            [[cos_a, -sin_a, 0], [sin_a, cos_a, 0]],
+            [[math.cos(theta), -math.sin(theta), 0.0],
+             [math.sin(theta), math.cos(theta), 0.0]],
             device=device, dtype=torch.float32,
         ).unsqueeze(0)
+        grid = F.affine_grid(rot_mat, [1, 1, n, n], align_corners=False)
+        return F.grid_sample(
+            t[None, None], grid, mode="bilinear",
+            padding_mode="zeros", align_corners=False,
+        )[0, 0]
 
-        grid = F.affine_grid(
-            rot_mat,
-            [1, 1, H, W],
-            align_corners=False,
-        )
-        rotated = F.grid_sample(
-            t.unsqueeze(0).unsqueeze(0),
-            grid,
-            mode="bilinear",
-            padding_mode="zeros",
-            align_corners=False,
-        )
-        return rotated.squeeze(0).squeeze(0)
+    def _pearson_corr(a: torch.Tensor, b: torch.Tensor, m: torch.Tensor) -> float:
+        a_c = a[m]
+        b_c = b[m]
+        if a_c.numel() < 2:
+            return 0.0
+        a_c = a_c - a_c.mean()
+        b_c = b_c - b_c.mean()
+        return float((a_c * b_c).sum() / (a_c.norm() * b_c.norm() + 1e-8))
 
-    def _pearson_corr(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-        """Compute Pearson correlation between flattened tensors."""
-        a_f = a.flatten()
-        b_f = b.flatten()
-        a_c = a_f - a_f.mean()
-        b_c = b_f - b_f.mean()
-        return (a_c * b_c).sum() / (a_c.norm() * b_c.norm() + 1e-8)
-
-    # Compute correlations at each angle
+    ones = torch.ones_like(ac)
     cors = {}
     for ang in angles:
         rotated = _rotate(ac, float(ang))
-        cors[ang] = _pearson_corr(ac, rotated).item()
+        # only compare pixels still in-bounds after rotation
+        valid = annulus & (_rotate(ones, float(ang)) > 0.5)
+        cors[ang] = _pearson_corr(ac, rotated, valid)
 
-    # Gridness formula
     gridness = min(cors[60], cors[120]) - max(cors[30], cors[90], cors[150])
-
     return float(gridness)
 
 

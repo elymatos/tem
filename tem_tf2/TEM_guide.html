@@ -1,0 +1,1053 @@
+<meta charset="utf-8">
+<title>Running the Tolman-Eichenbaum Machine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+  /* ---------- tokens: complete light palette on bare :root ---------- */
+  :root {
+    --ground:      #f2f5f6;
+    --surface:     #ffffff;
+    --surface-2:   #e9eef0;
+    --ink:         #131a1f;
+    --ink-soft:    #3d4a52;
+    --ink-mute:    #66757e;
+    --rule:        #d2dbdf;
+    --rule-soft:   #e3eaed;
+
+    /* TEM's own three streams. These are not decoration: g is structural
+       knowledge, x is sensory, p is the conjunction of the two. */
+    --g:           #0d7168;
+    --g-wash:      #dcefec;
+    --x:           #a85c10;
+    --x-wash:      #f7ebda;
+    --p:           #6a49a0;
+    --p-wash:      #eae4f5;
+
+    --warn:        #a3421c;
+    --shadow:      0 1px 2px rgba(19,26,31,.06), 0 8px 24px -12px rgba(19,26,31,.18);
+
+    --measure: 68ch;
+    --step--1: clamp(.82rem, .8rem + .1vw, .88rem);
+    --step-0:  clamp(1rem, .97rem + .16vw, 1.09rem);
+    --step-1:  clamp(1.2rem, 1.1rem + .4vw, 1.4rem);
+    --step-2:  clamp(1.5rem, 1.3rem + .8vw, 2rem);
+    --step-3:  clamp(2rem, 1.6rem + 1.7vw, 3rem);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:    #0e1418;
+      --surface:   #151d22;
+      --surface-2: #1d272d;
+      --ink:       #e6edf0;
+      --ink-soft:  #b3c1c8;
+      --ink-mute:  #7d8f98;
+      --rule:      #2a373e;
+      --rule-soft: #202b31;
+      --g:         #4cc2b7;
+      --g-wash:    #10312e;
+      --x:         #e0982f;
+      --x-wash:    #362512;
+      --p:         #a98ada;
+      --p-wash:    #251d38;
+      --warn:      #e08055;
+      --shadow:    0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:    #0e1418;
+    --surface:   #151d22;
+    --surface-2: #1d272d;
+    --ink:       #e6edf0;
+    --ink-soft:  #b3c1c8;
+    --ink-mute:  #7d8f98;
+    --rule:      #2a373e;
+    --rule-soft: #202b31;
+    --g:         #4cc2b7;
+    --g-wash:    #10312e;
+    --x:         #e0982f;
+    --x-wash:    #362512;
+    --p:         #a98ada;
+    --p-wash:    #251d38;
+    --warn:      #e08055;
+    --shadow:    0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.7);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    font-size: var(--step-0);
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    display: grid;
+    grid-template-columns: 1fr min(var(--measure), 100%) 1fr;
+    row-gap: 0;
+    padding: 0 1.25rem 6rem;
+  }
+  .page > * { grid-column: 2; }
+  .wide {
+    grid-column: 1 / -1;
+    width: min(112ch, 100%);
+    margin-inline: auto;
+  }
+
+  /* ---------- masthead ---------- */
+  header.masthead {
+    padding: 4.5rem 0 2.5rem;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 3rem;
+  }
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: var(--step--1);
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--g);
+    margin: 0 0 1.1rem;
+  }
+  h1 {
+    font-family: Newsreader, Georgia, serif;
+    font-weight: 500;
+    font-size: var(--step-3);
+    line-height: 1.08;
+    letter-spacing: -.02em;
+    text-wrap: balance;
+    margin: 0 0 1rem;
+  }
+  .standfirst {
+    font-family: Newsreader, Georgia, serif;
+    font-size: var(--step-1);
+    line-height: 1.5;
+    color: var(--ink-soft);
+    margin: 0 0 1.8rem;
+    max-width: 58ch;
+  }
+  .masthead-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem 1.5rem;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: var(--step--1);
+    color: var(--ink-mute);
+  }
+  .masthead-meta b { color: var(--ink-soft); font-weight: 500; }
+
+  /* ---------- headings ---------- */
+  h2 {
+    font-family: Newsreader, Georgia, serif;
+    font-weight: 500;
+    font-size: var(--step-2);
+    line-height: 1.15;
+    letter-spacing: -.015em;
+    text-wrap: balance;
+    margin: 4rem 0 .35rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--rule);
+  }
+  h2:first-of-type { margin-top: 0; }
+  h2 .num {
+    display: block;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: var(--step--1);
+    letter-spacing: .14em;
+    color: var(--g);
+    margin-bottom: .5rem;
+  }
+  h3 {
+    font-family: "IBM Plex Sans", sans-serif;
+    font-weight: 600;
+    font-size: var(--step-1);
+    letter-spacing: -.005em;
+    text-wrap: balance;
+    margin: 2.5rem 0 .6rem;
+  }
+  h4 {
+    font-family: "IBM Plex Mono", monospace;
+    font-weight: 500;
+    font-size: var(--step--1);
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-mute);
+    margin: 2rem 0 .5rem;
+  }
+
+  p { margin: 0 0 1.1rem; }
+  a { color: var(--g); text-underline-offset: .18em; }
+  :focus-visible { outline: 2px solid var(--g); outline-offset: 3px; border-radius: 2px; }
+
+  code {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .88em;
+    background: var(--surface-2);
+    padding: .12em .38em;
+    border-radius: 3px;
+  }
+  strong { font-weight: 600; }
+
+  /* variable chips — carry the g/x/p colour system into running prose */
+  .v {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .86em;
+    font-weight: 500;
+    padding: .1em .4em;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+  .v-g { color: var(--g); background: var(--g-wash); }
+  .v-x { color: var(--x); background: var(--x-wash); }
+  .v-p { color: var(--p); background: var(--p-wash); }
+
+  ul, ol { margin: 0 0 1.1rem; padding-left: 1.3rem; }
+  li { margin-bottom: .45rem; }
+  li::marker { color: var(--ink-mute); }
+
+  /* ---------- figures ---------- */
+  figure {
+    margin: 2.2rem 0;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 1.5rem 1.5rem 1.1rem;
+    box-shadow: var(--shadow);
+  }
+  figure svg { display: block; width: 100%; height: auto; overflow: visible; }
+  figcaption {
+    font-size: var(--step--1);
+    line-height: 1.55;
+    color: var(--ink-mute);
+    margin-top: 1.1rem;
+    padding-top: .8rem;
+    border-top: 1px solid var(--rule-soft);
+  }
+  figcaption b { color: var(--ink-soft); font-weight: 600; }
+
+  svg text { font-family: "IBM Plex Sans", sans-serif; fill: var(--ink); }
+  svg .mono { font-family: "IBM Plex Mono", monospace; }
+  svg .lbl { font-size: 11px; fill: var(--ink-mute); }
+  svg .cap { font-size: 12px; font-weight: 600; }
+  svg .tiny { font-size: 9.5px; fill: var(--ink-mute); }
+
+  /* ---------- tables ---------- */
+  .tablewrap { overflow-x: auto; margin: 1.6rem 0 2rem; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--step--1);
+    min-width: 44rem;
+  }
+  th, td {
+    text-align: left;
+    padding: .7rem .85rem;
+    border-bottom: 1px solid var(--rule-soft);
+    vertical-align: top;
+  }
+  thead th {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .72rem;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--ink-mute);
+    font-weight: 500;
+    border-bottom: 1px solid var(--rule);
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.k { font-family: "IBM Plex Mono", monospace; white-space: nowrap; font-weight: 500; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  /* ---------- code blocks ---------- */
+  pre {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--g);
+    border-radius: 4px;
+    padding: 1rem 1.1rem;
+    overflow-x: auto;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .84rem;
+    line-height: 1.6;
+    margin: 1.2rem 0 1.6rem;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  pre .c { color: var(--ink-mute); }
+
+  /* ---------- callouts ---------- */
+  .note {
+    border-left: 3px solid var(--x);
+    background: var(--x-wash);
+    padding: .95rem 1.1rem;
+    border-radius: 0 4px 4px 0;
+    margin: 1.6rem 0;
+    font-size: .95em;
+  }
+  .note p:last-child { margin-bottom: 0; }
+  .note .h {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .72rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--x);
+    display: block;
+    margin-bottom: .4rem;
+  }
+
+  /* ---------- key/value strip ---------- */
+  .facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 5px;
+    overflow: hidden;
+    margin: 1.6rem 0 2rem;
+  }
+  .facts div { background: var(--surface); padding: .85rem .95rem; }
+  .facts dt {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .68rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ink-mute);
+    margin-bottom: .3rem;
+  }
+  .facts dd {
+    margin: 0;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .95rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+  }
+
+  footer.end {
+    margin-top: 4rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--rule);
+    font-size: var(--step--1);
+    color: var(--ink-mute);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="page">
+
+<header class="masthead">
+  <p class="eyebrow">tem_tf2 &middot; field guide</p>
+  <h1>Running the Tolman&#8209;Eichenbaum Machine</h1>
+  <p class="standfirst">What this model assumes, what happens on every one of its two million
+  training steps, and how to read every number it prints at you.</p>
+  <div class="masthead-meta">
+    <span><b>Model</b> Whittington et al., <i>Cell</i> 183 (2020)</span>
+    <span><b>Code</b> tem_tf2 &middot; TensorFlow 2</span>
+    <span><b>Entry point</b> run_tem.py</span>
+  </div>
+</header>
+
+<h2><span class="num">01</span>The problem TEM is built to solve</h2>
+
+<p>Imagine you walk into a room you have never seen before. You take four steps: north, east,
+south, west. You are back where you started &mdash; and you knew that <em>before</em> you got
+there. Nobody had to teach you this room. You already knew the rule, because the rule belongs to
+space itself, not to any particular room.</p>
+
+<p>That is the whole idea. TEM separates two kinds of knowledge that are usually tangled together:</p>
+
+<ul>
+  <li><strong>Structural knowledge</strong> &mdash; the rules of the space. North + east + south +
+  west returns you to the start. This transfers to every room you will ever enter.</li>
+  <li><strong>Sensory knowledge</strong> &mdash; what is actually <em>at</em> each location in
+  <em>this</em> room. A chair here, a window there. This is completely different in the next room.</li>
+</ul>
+
+<p>The claim in the paper is that the brain keeps these in different places. Grid cells in medial
+entorhinal cortex carry the reusable structure. Place cells in hippocampus bind that structure to
+whatever you are currently seeing. Because structure is stored separately, it can be reused
+instantly in a new environment &mdash; which is what lets you make correct predictions in a room
+you have never visited.</p>
+
+<p>The model has three representations, and essentially everything else in the codebase is
+machinery for keeping them honest. This colour coding is used in every diagram below.</p>
+
+<figure class="wide">
+<svg viewBox="0 0 780 250" role="img" aria-label="Diagram: structural code g and sensory code x combine into place code p">
+  <!-- g box -->
+  <rect x="20" y="40" width="200" height="86" rx="5" fill="var(--g-wash)" stroke="var(--g)" stroke-width="1.5"/>
+  <text x="38" y="68" class="mono cap" fill="var(--g)">g &mdash; structural code</text>
+  <text x="38" y="88" class="lbl">Where am I in the abstract</text>
+  <text x="38" y="103" class="lbl">structure? Updated by actions</text>
+  <text x="38" y="118" class="lbl">alone. Grid cells.</text>
+
+  <!-- x box -->
+  <rect x="20" y="150" width="200" height="72" rx="5" fill="var(--x-wash)" stroke="var(--x)" stroke-width="1.5"/>
+  <text x="38" y="178" class="mono cap" fill="var(--x)">x &mdash; sensory code</text>
+  <text x="38" y="198" class="lbl">What can I see right here?</text>
+  <text x="38" y="213" class="lbl">One of 45 possible stimuli.</text>
+
+  <!-- arrows -->
+  <path d="M228 83 L 318 118" stroke="var(--g)" stroke-width="1.6" fill="none" marker-end="url(#ag)"/>
+  <path d="M228 186 L 318 152" stroke="var(--x)" stroke-width="1.6" fill="none" marker-end="url(#ax)"/>
+  <defs>
+    <marker id="ag" markerWidth="7" markerHeight="7" refX="6" refY="3.2" orient="auto">
+      <path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--g)"/></marker>
+    <marker id="ax" markerWidth="7" markerHeight="7" refX="6" refY="3.2" orient="auto">
+      <path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--x)"/></marker>
+    <marker id="ap" markerWidth="7" markerHeight="7" refX="6" refY="3.2" orient="auto">
+      <path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--p)"/></marker>
+    <marker id="an" markerWidth="7" markerHeight="7" refX="6" refY="3.2" orient="auto">
+      <path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--ink-mute)"/></marker>
+  </defs>
+
+  <!-- p box -->
+  <rect x="326" y="96" width="212" height="80" rx="5" fill="var(--p-wash)" stroke="var(--p)" stroke-width="1.5"/>
+  <text x="344" y="124" class="mono cap" fill="var(--p)">p &mdash; place code</text>
+  <text x="344" y="144" class="lbl">Every pairing of &ldquo;structural</text>
+  <text x="344" y="159" class="lbl">slot&rdquo; with &ldquo;thing seen there&rdquo;.</text>
+
+  <text x="432" y="196" class="mono tiny" text-anchor="middle">outer product, then flattened</text>
+
+  <!-- memory -->
+  <path d="M546 136 L 616 136" stroke="var(--p)" stroke-width="1.6" fill="none" marker-end="url(#ap)"/>
+  <rect x="624" y="100" width="136" height="72" rx="5" fill="var(--surface-2)" stroke="var(--rule)" stroke-width="1.5"/>
+  <text x="640" y="128" class="mono cap">Memory M</text>
+  <text x="640" y="148" class="lbl">Hebbian matrix. Written</text>
+  <text x="640" y="163" class="lbl">once, retrieved forever.</text>
+
+  <text x="580" y="128" class="mono tiny" text-anchor="middle">store</text>
+
+  <!-- transfer note -->
+  <rect x="20" y="12" width="200" height="18" rx="3" fill="none"/>
+  <text x="20" y="25" class="mono tiny">REUSED ACROSS ENVIRONMENTS &darr;</text>
+  <text x="326" y="86" class="mono tiny">REBUILT IN EVERY ENVIRONMENT &darr;</text>
+</svg>
+<figcaption><b>The central architecture.</b> Structure (<span class="v v-g">g</span>) and sense
+(<span class="v v-x">x</span>) are deliberately kept apart, then bound into place cells
+(<span class="v v-p">p</span>). Only <span class="v v-p">p</span> is written to memory. Because
+<span class="v v-g">g</span> never learns anything room-specific, the weights that update it stay
+valid when you drop the agent into a brand-new room &mdash; that is where generalisation comes
+from.</figcaption>
+</figure>
+
+<h2><span class="num">02</span>The world the agent lives in</h2>
+
+<p>TEM never sees pixels or coordinates. Its world is a <strong>graph</strong>: a set of nodes
+connected by labelled edges. At each node sits one sensory observation drawn from 45 possibilities.
+The agent takes a random walk, and at every step it must answer one question:
+<em>what am I about to see next?</em></p>
+
+<p>That question is the entire training signal. There are no labels, no rewards driving the loss,
+no supervision beyond &ldquo;predict the next observation&rdquo;. Everything the model learns
+&mdash; grid cells included &mdash; falls out of getting better at that one task.</p>
+
+<figure class="wide">
+<svg viewBox="0 0 780 230" role="img" aria-label="Diagram: a graph world where four moves return to start">
+  <!-- grid of nodes -->
+  <g stroke="var(--rule)" stroke-width="1.4" fill="none">
+    <path d="M120 60 H 260 M120 130 H 260 M120 200 H 260"/>
+    <path d="M120 60 V 200 M190 60 V 200 M260 60 V 200"/>
+  </g>
+  <!-- nodes with sensory labels -->
+  <g>
+    <circle cx="120" cy="60" r="15" fill="var(--x-wash)" stroke="var(--x)" stroke-width="1.5"/>
+    <text x="120" y="64" text-anchor="middle" class="mono tiny" fill="var(--x)">pig</text>
+    <circle cx="190" cy="60" r="15" fill="var(--x-wash)" stroke="var(--x)" stroke-width="1.5"/>
+    <text x="190" y="64" text-anchor="middle" class="mono tiny" fill="var(--x)">cat</text>
+    <circle cx="260" cy="60" r="15" fill="var(--surface-2)" stroke="var(--rule)" stroke-width="1.5"/>
+    <circle cx="120" cy="130" r="15" fill="var(--surface-2)" stroke="var(--rule)" stroke-width="1.5"/>
+    <circle cx="190" cy="130" r="15" fill="var(--surface-2)" stroke="var(--rule)" stroke-width="1.5"/>
+    <circle cx="260" cy="130" r="15" fill="var(--surface-2)" stroke="var(--rule)" stroke-width="1.5"/>
+    <circle cx="120" cy="200" r="15" fill="var(--surface-2)" stroke="var(--rule)" stroke-width="1.5"/>
+    <circle cx="190" cy="200" r="15" fill="var(--surface-2)" stroke="var(--rule)" stroke-width="1.5"/>
+    <circle cx="260" cy="200" r="15" fill="var(--surface-2)" stroke="var(--rule)" stroke-width="1.5"/>
+  </g>
+  <!-- the loop -->
+  <path d="M120 45 Q 155 25 190 45" stroke="var(--g)" stroke-width="2" fill="none" marker-end="url(#ag)"/>
+  <path d="M205 60 Q 225 95 205 128" stroke="var(--g)" stroke-width="2" fill="none" marker-end="url(#ag)" transform="translate(-15,0)"/>
+  <path d="M175 130 Q 155 150 120 145" stroke="var(--g)" stroke-width="2" fill="none" marker-end="url(#ag)"/>
+  <path d="M105 118 Q 88 90 105 72" stroke="var(--g)" stroke-width="2" fill="none" marker-end="url(#ag)"/>
+
+  <text x="60" y="222" class="mono tiny">random walk on a graph</text>
+
+  <!-- explanation -->
+  <text x="330" y="52" class="cap">The rule that must be learned</text>
+  <text x="330" y="78" class="lbl">north &rarr; east &rarr; south &rarr; west = back where you started</text>
+  <text x="330" y="100" class="lbl">Having seen &ldquo;pig&rdquo; and walked that loop, the model should</text>
+  <text x="330" y="116" class="lbl">predict &ldquo;pig&rdquo; again &mdash; even if it has never taken that</text>
+  <text x="330" y="132" class="lbl">exact sequence of actions before.</text>
+
+  <rect x="330" y="150" width="420" height="58" rx="4" fill="var(--g-wash)" stroke="var(--g)" stroke-width="1.2"/>
+  <text x="346" y="172" class="mono tiny" fill="var(--g)">THIS IS THE ZERO-SHOT TEST</text>
+  <text x="346" y="192" class="lbl">Predicting correctly on an edge never taken, to a node already seen,</text>
+  <text x="346" y="204" class="lbl">is only possible if the rules of space have actually been learned.</text>
+</svg>
+<figcaption><b>Prediction as the only objective.</b> Memorising sequences gets you nowhere on a
+random walk. The only way to reliably predict the next observation is to infer the structure of the
+graph and use it. The default world in <code>parameters.py</code> is not a plain grid but
+<code>frank2000</code> &mdash; a W&#8209;maze alternation task with reward sites, 52 nodes with the
+shipped settings.</figcaption>
+</figure>
+
+<h4>What the defaults give you</h4>
+<dl class="facts">
+  <div><dt>World</dt><dd>frank2000</dd></div>
+  <div><dt>Nodes</dt><dd>52</dd></div>
+  <div><dt>Sensory classes</dt><dd>45</dd></div>
+  <div><dt>Batch (envs)</dt><dd>16</dd></div>
+  <div><dt>Steps per update</dt><dd>75</dd></div>
+  <div><dt>g cells</dt><dd>120</dd></div>
+  <div><dt>p cells</dt><dd>400</dd></div>
+  <div><dt>Training steps</dt><dd>2,000,000</dd></div>
+</dl>
+
+<p>The 16 environments in a batch are all different, and they are replaced on the fly as walks end.
+The model is therefore never learning one map &mdash; it is learning what all maps have in common.</p>
+
+<h2><span class="num">03</span>What happens in a single step</h2>
+
+<p>This loop is the model. It runs 75 times per gradient update, and it is worth understanding
+completely, because every metric you will read later is a measurement taken at one of these
+stages.</p>
+
+<figure class="wide">
+<svg viewBox="0 0 780 320" role="img" aria-label="Diagram: the six stages of one TEM timestep">
+  <!-- stage boxes -->
+  <g>
+    <rect x="14" y="30" width="118" height="62" rx="4" fill="var(--g-wash)" stroke="var(--g)" stroke-width="1.4"/>
+    <text x="24" y="48" class="mono tiny" fill="var(--g)">1 &mdash; PATH INTEGRATE</text>
+    <text x="24" y="66" class="lbl">Move g using only</text>
+    <text x="24" y="79" class="lbl">the action taken.</text>
+
+    <rect x="146" y="30" width="118" height="62" rx="4" fill="var(--surface-2)" stroke="var(--rule)" stroke-width="1.4"/>
+    <text x="156" y="48" class="mono tiny">2 &mdash; RETRIEVE</text>
+    <text x="156" y="66" class="lbl">Ask memory what</text>
+    <text x="156" y="79" class="lbl">was seen at this g.</text>
+
+    <rect x="278" y="30" width="118" height="62" rx="4" fill="var(--p-wash)" stroke="var(--p)" stroke-width="1.4"/>
+    <text x="288" y="48" class="mono tiny" fill="var(--p)">3 &mdash; PREDICT</text>
+    <text x="288" y="66" class="lbl">Guess the next</text>
+    <text x="288" y="79" class="lbl">observation.</text>
+
+    <rect x="410" y="30" width="118" height="62" rx="4" fill="var(--x-wash)" stroke="var(--x)" stroke-width="1.4"/>
+    <text x="420" y="48" class="mono tiny" fill="var(--x)">4 &mdash; OBSERVE</text>
+    <text x="420" y="66" class="lbl">See what is really</text>
+    <text x="420" y="79" class="lbl">there. Score it.</text>
+
+    <rect x="542" y="30" width="118" height="62" rx="4" fill="var(--g-wash)" stroke="var(--g)" stroke-width="1.4"/>
+    <text x="552" y="48" class="mono tiny" fill="var(--g)">5 &mdash; CORRECT</text>
+    <text x="552" y="66" class="lbl">Fix drift in g using</text>
+    <text x="552" y="79" class="lbl">what was seen.</text>
+
+    <rect x="674" y="30" width="92" height="62" rx="4" fill="var(--surface-2)" stroke="var(--rule)" stroke-width="1.4"/>
+    <text x="684" y="48" class="mono tiny">6 &mdash; STORE</text>
+    <text x="684" y="66" class="lbl">Write the new</text>
+    <text x="684" y="79" class="lbl">memory.</text>
+  </g>
+  <!-- arrows between -->
+  <g stroke="var(--ink-mute)" stroke-width="1.4" fill="none">
+    <path d="M132 61 H 142" marker-end="url(#an)"/>
+    <path d="M264 61 H 274" marker-end="url(#an)"/>
+    <path d="M396 61 H 406" marker-end="url(#an)"/>
+    <path d="M528 61 H 538" marker-end="url(#an)"/>
+    <path d="M660 61 H 670" marker-end="url(#an)"/>
+  </g>
+  <!-- feedback loop -->
+  <path d="M720 96 V 128 H 73 V 96" stroke="var(--ink-mute)" stroke-width="1.4" fill="none" stroke-dasharray="4 3" marker-end="url(#an)"/>
+  <text x="396" y="124" text-anchor="middle" class="mono tiny">next timestep &mdash; carries g and memory forward</text>
+
+  <!-- lower panel: information access -->
+  <text x="14" y="176" class="cap">What each stage is allowed to know</text>
+  <line x1="14" y1="186" x2="766" y2="186" stroke="var(--rule)" stroke-width="1"/>
+
+  <text x="14" y="208" class="mono tiny" fill="var(--g)">g&#8320; PATH-INTEGRATED</text>
+  <rect x="180" y="196" width="330" height="16" rx="2" fill="var(--g-wash)" stroke="var(--g)" stroke-width="1"/>
+  <text x="190" y="208" class="tiny">actions only &mdash; has NOT seen the current observation</text>
+  <rect x="516" y="196" width="250" height="16" rx="2" fill="none" stroke="var(--rule)" stroke-width="1" stroke-dasharray="3 3"/>
+  <text x="526" y="208" class="tiny">this is the honest prediction</text>
+
+  <text x="14" y="240" class="mono tiny" fill="var(--g)">g INFERRED</text>
+  <rect x="180" y="228" width="440" height="16" rx="2" fill="var(--g-wash)" stroke="var(--g)" stroke-width="1"/>
+  <text x="190" y="240" class="tiny">actions + memory evidence &mdash; drift has been corrected</text>
+
+  <text x="14" y="272" class="mono tiny" fill="var(--p)">p INFERRED</text>
+  <rect x="180" y="260" width="586" height="16" rx="2" fill="var(--p-wash)" stroke="var(--p)" stroke-width="1"/>
+  <text x="190" y="272" class="tiny">actions + memory + the current observation itself &mdash; knows the answer</text>
+
+  <text x="14" y="302" class="lbl">Longer bar = more information. The metrics in section 06 are simply</text>
+  <text x="14" y="316" class="lbl">&ldquo;how well did the model predict, given each of these three levels of access?&rdquo;</text>
+</svg>
+<figcaption><b>One timestep, and the information ladder that defines every metric.</b> The
+distinction that matters: predicting from path integration alone
+(<span class="v v-g">g_gen</span>) is a real forecast, while predicting from
+<span class="v v-p">p</span> is close to reading the answer off the page. Both are logged, and
+confusing them is the single easiest way to misread a training run.</figcaption>
+</figure>
+
+<h3>Why memory is a matrix, not a list</h3>
+
+<p>TEM does not keep a list of past events. It keeps one matrix, <code>a_rnn</code> in the code, and
+adds every new memory into it by Hebbian learning &mdash; the outer product of the place code with
+itself. Retrieval is not a lookup; it is an attractor process that settles onto the stored pattern
+closest to what you asked for.</p>
+
+<figure>
+<svg viewBox="0 0 640 200" role="img" aria-label="Diagram: Hebbian memory formation and retrieval">
+  <text x="8" y="18" class="mono tiny">STORING</text>
+  <rect x="8" y="30" width="70" height="26" rx="3" fill="var(--p-wash)" stroke="var(--p)" stroke-width="1.3"/>
+  <text x="43" y="47" text-anchor="middle" class="mono tiny" fill="var(--p)">p</text>
+  <text x="88" y="48" class="lbl">&times; p</text>
+  <text x="118" y="48" class="lbl">&rarr; added into</text>
+  <rect x="200" y="24" width="42" height="42" rx="3" fill="var(--surface-2)" stroke="var(--rule)" stroke-width="1.3"/>
+  <text x="221" y="50" text-anchor="middle" class="mono tiny">M</text>
+  <text x="252" y="42" class="lbl">One shot. No gradient</text>
+  <text x="252" y="56" class="lbl">step required.</text>
+
+  <line x1="8" y1="86" x2="632" y2="86" stroke="var(--rule-soft)" stroke-width="1"/>
+
+  <text x="8" y="110" class="mono tiny">RETRIEVING</text>
+  <rect x="8" y="122" width="70" height="26" rx="3" fill="var(--g-wash)" stroke="var(--g)" stroke-width="1.3"/>
+  <text x="43" y="139" text-anchor="middle" class="mono tiny" fill="var(--g)">g</text>
+  <path d="M84 135 H 116" stroke="var(--ink-mute)" stroke-width="1.4" marker-end="url(#an)"/>
+  <rect x="122" y="116" width="120" height="38" rx="3" fill="var(--surface-2)" stroke="var(--rule)" stroke-width="1.3"/>
+  <text x="182" y="132" text-anchor="middle" class="mono tiny">attractor loop</text>
+  <text x="182" y="147" text-anchor="middle" class="tiny">settles onto nearest memory</text>
+  <path d="M248 135 H 280" stroke="var(--ink-mute)" stroke-width="1.4" marker-end="url(#an)"/>
+  <rect x="286" y="122" width="80" height="26" rx="3" fill="var(--p-wash)" stroke="var(--p)" stroke-width="1.3"/>
+  <text x="326" y="139" text-anchor="middle" class="mono tiny" fill="var(--p)">p retrieved</text>
+  <path d="M372 135 H 404" stroke="var(--ink-mute)" stroke-width="1.4" marker-end="url(#an)"/>
+  <rect x="410" y="122" width="80" height="26" rx="3" fill="var(--x-wash)" stroke="var(--x)" stroke-width="1.3"/>
+  <text x="450" y="139" text-anchor="middle" class="mono tiny" fill="var(--x)">x predicted</text>
+
+  <text x="504" y="132" class="lbl">Memories decay by</text>
+  <text x="504" y="146" class="lbl">&lambda; = 0.9999 per step.</text>
+
+  <text x="8" y="182" class="lbl">Because memory is written instantly but weights change slowly, TEM can learn a brand-new room in one pass</text>
+  <text x="8" y="194" class="lbl">while its structural knowledge stays fixed. That split is the point of the whole design.</text>
+</svg>
+<figcaption><b>Fast memory, slow weights.</b> The Hebbian matrix is what makes one-shot learning of
+a new environment possible. Two matrices are actually kept &mdash; <code>a_rnn</code> and
+<code>a_rnn_inv</code> &mdash; for retrieval in both directions.</figcaption>
+</figure>
+
+<h2><span class="num">04</span>Grid cells come from frequency bands</h2>
+
+<p>The 120 <span class="v v-g">g</span> cells are not one undifferentiated pool. They are split into
+five modules that are forced to update at different rates, from fast to slow. This is a structural
+prior, hard-coded in <code>parameters.py</code>, and it is the reason grid-like cells of several
+different scales appear after training.</p>
+
+<figure class="wide">
+<svg viewBox="0 0 780 200" role="img" aria-label="Diagram: five frequency modules and their place cell counts">
+  <text x="8" y="16" class="mono tiny">g CELLS PER MODULE &mdash; n_grids_all</text>
+  <g>
+    <rect x="8"   y="28" width="150" height="34" rx="3" fill="var(--g-wash)" stroke="var(--g)" stroke-width="1.4"/>
+    <text x="83"  y="50" text-anchor="middle" class="mono tiny" fill="var(--g)">30</text>
+    <rect x="166" y="28" width="150" height="34" rx="3" fill="var(--g-wash)" stroke="var(--g)" stroke-width="1.4"/>
+    <text x="241" y="50" text-anchor="middle" class="mono tiny" fill="var(--g)">30</text>
+    <rect x="324" y="28" width="120" height="34" rx="3" fill="var(--g-wash)" stroke="var(--g)" stroke-width="1.4"/>
+    <text x="384" y="50" text-anchor="middle" class="mono tiny" fill="var(--g)">24</text>
+    <rect x="452" y="28" width="90" height="34" rx="3" fill="var(--g-wash)" stroke="var(--g)" stroke-width="1.4"/>
+    <text x="497" y="50" text-anchor="middle" class="mono tiny" fill="var(--g)">18</text>
+    <rect x="550" y="28" width="90" height="34" rx="3" fill="var(--g-wash)" stroke="var(--g)" stroke-width="1.4"/>
+    <text x="595" y="50" text-anchor="middle" class="mono tiny" fill="var(--g)">18</text>
+  </g>
+  <text x="8"   y="78" class="tiny">fastest &mdash; small spatial scale</text>
+  <text x="640" y="50" class="tiny">slowest &mdash;</text>
+  <text x="640" y="62" class="tiny">large scale</text>
+
+  <line x1="8" y1="92" x2="772" y2="92" stroke="var(--rule-soft)"/>
+
+  <text x="8" y="114" class="mono tiny">EACH PAIRS WITH SENSORY CODE &rarr; p CELLS &mdash; n_place_all</text>
+  <g>
+    <rect x="8"   y="126" width="150" height="34" rx="3" fill="var(--p-wash)" stroke="var(--p)" stroke-width="1.4"/>
+    <text x="83"  y="148" text-anchor="middle" class="mono tiny" fill="var(--p)">100</text>
+    <rect x="166" y="126" width="150" height="34" rx="3" fill="var(--p-wash)" stroke="var(--p)" stroke-width="1.4"/>
+    <text x="241" y="148" text-anchor="middle" class="mono tiny" fill="var(--p)">100</text>
+    <rect x="324" y="126" width="120" height="34" rx="3" fill="var(--p-wash)" stroke="var(--p)" stroke-width="1.4"/>
+    <text x="384" y="148" text-anchor="middle" class="mono tiny" fill="var(--p)">80</text>
+    <rect x="452" y="126" width="90" height="34" rx="3" fill="var(--p-wash)" stroke="var(--p)" stroke-width="1.4"/>
+    <text x="497" y="148" text-anchor="middle" class="mono tiny" fill="var(--p)">60</text>
+    <rect x="550" y="126" width="90" height="34" rx="3" fill="var(--p-wash)" stroke="var(--p)" stroke-width="1.4"/>
+    <text x="595" y="148" text-anchor="middle" class="mono tiny" fill="var(--p)">60</text>
+  </g>
+  <text x="8" y="186" class="lbl">120 g cells total &middot; 400 p cells total. In the notebook, plots are grouped by these five bands when split_freqs is on.</text>
+</svg>
+<figcaption><b>The module hierarchy.</b> Slower modules end up with wider grid spacing, mirroring the
+discrete modules found in entorhinal cortex. When you look at rate maps later, expect the leftmost
+band to show tight periodic patterns and the rightmost to show broad ones.</figcaption>
+</figure>
+
+<h2><span class="num">05</span>The training curriculum</h2>
+
+<p>TEM cannot be trained by simply switching everything on at once &mdash; the memory would be
+garbage on step one, and inference that trusted it would never recover. Instead several quantities
+ramp up over the first few thousand steps. These are the <code>scalings</code> printed in the log,
+and knowing their schedule tells you whether a run is behaving.</p>
+
+<figure class="wide">
+<svg viewBox="0 0 780 240" role="img" aria-label="Chart: curriculum parameters ramping up over training iterations">
+  <!-- axes -->
+  <line x1="60" y1="30" x2="60" y2="180" stroke="var(--rule)" stroke-width="1.2"/>
+  <line x1="60" y1="180" x2="740" y2="180" stroke="var(--rule)" stroke-width="1.2"/>
+  <text x="52" y="35" text-anchor="end" class="tiny">1.0</text>
+  <text x="52" y="184" text-anchor="end" class="tiny">0.0</text>
+  <text x="24" y="110" text-anchor="middle" class="tiny" transform="rotate(-90 24 110)">scaling value</text>
+
+  <!-- x ticks: 0, 200, 2000, 4000, 16000 (log-ish spacing, labelled honestly) -->
+  <g class="tiny" fill="var(--ink-mute)">
+    <text x="60"  y="198" text-anchor="middle">0</text>
+    <text x="196" y="198" text-anchor="middle">200</text>
+    <text x="332" y="198" text-anchor="middle">2,000</text>
+    <text x="468" y="198" text-anchor="middle">4,000</text>
+    <text x="604" y="198" text-anchor="middle">16,000</text>
+    <text x="740" y="198" text-anchor="middle">&gt;16k</text>
+  </g>
+  <text x="400" y="216" text-anchor="middle" class="tiny">gradient updates (axis compressed &mdash; ticks mark the schedule constants)</text>
+
+  <g stroke-width="2" fill="none">
+    <!-- forget: reaches 1 at 200 -->
+    <path d="M60 180 L196 30 L740 30" stroke="var(--x)"/>
+    <!-- p2g_use: sigmoid centred at 0, scale 200 -> ~1 by 200 -->
+    <path d="M60 105 C 110 105, 150 34, 196 32 L740 30" stroke="var(--p)" stroke-dasharray="5 3"/>
+    <!-- temp: reaches 1 at 2000 -->
+    <path d="M60 180 L332 30 L740 30" stroke="var(--g)"/>
+    <!-- hebb_learn: reaches 1 at 16000 -->
+    <path d="M60 180 L604 30 L740 30" stroke="var(--ink-soft)"/>
+  </g>
+
+  <!-- legend -->
+  <g>
+    <rect x="60" y="222" width="14" height="3" fill="var(--x)"/>
+    <text x="80" y="228" class="tiny">forget &mdash; 200</text>
+    <rect x="190" y="222" width="14" height="3" fill="var(--p)"/>
+    <text x="210" y="228" class="tiny">p2g_use &mdash; sigmoid, scale 200</text>
+    <rect x="400" y="222" width="14" height="3" fill="var(--g)"/>
+    <text x="420" y="228" class="tiny">temp &mdash; 2,000</text>
+    <rect x="520" y="222" width="14" height="3" fill="var(--ink-soft)"/>
+    <text x="540" y="228" class="tiny">hebb_learn &mdash; 16,000</text>
+  </g>
+</svg>
+<figcaption><b>What ramps, and when.</b> <code>forget</code> reaches full strength almost
+immediately; <code>temp</code> (the weight on the consistency losses) takes 2,000 updates;
+<code>hebb_learn</code> takes 16,000. Two others run the opposite way &mdash; the activity
+regularisers <code>g_cell_reg</code> and <code>p_cell_reg</code> decay from 1 to 0, tightening
+early representations and then letting go.</figcaption>
+</figure>
+
+<div class="note">
+  <span class="h">Read this before judging an early run</span>
+  <p>Accuracy figures before roughly 16,000 updates are not meaningful. The memory system is still
+  being phased in. A run that looks mediocre at step 2,000 is simply a run at step 2,000.</p>
+</div>
+
+<h2><span class="num">06</span>Every metric, in plain terms</h2>
+
+<p>Two lines are appended to <code>summaries.log</code> every 100 updates. They look like this
+&mdash; these are real numbers from a short run of this code:</p>
+
+<pre><code>MaxHebb=0.10516, T=0.10, F=1.00, L=0.01, train_i=200, total_steps=15000
+it=200, lxP=2.25, lxG=6.02, lxGt=6.02, lp=0.07, lg=0.00, aP=89.08, aGinf=15.75, aGt=15.75</code></pre>
+
+<h3>The three accuracies &mdash; the ones that matter</h3>
+
+<p>All three ask &ldquo;did the model predict the right one of 45 stimuli?&rdquo; They differ only
+in <em>what the model was allowed to know</em> when it guessed. Chance is
+<strong>1/45 &asymp; 2.2%</strong>.</p>
+
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Log name</th><th>In code</th><th>Predicts from</th><th>What it tells you</th></tr></thead>
+  <tbody>
+    <tr>
+      <td class="k" style="color:var(--p)">aP</td>
+      <td class="k">accuracies.p</td>
+      <td>Inferred place cells <span class="v v-p">p</span>, which have already absorbed the current
+      observation</td>
+      <td><b>A sanity check, not a result.</b> It should climb fast and go high. It mostly says the
+      autoencoder path works. High aP with low aGt means the model is copying, not understanding.</td>
+    </tr>
+    <tr>
+      <td class="k" style="color:var(--g)">aGinf</td>
+      <td class="k">accuracies.g</td>
+      <td>Inferred <span class="v v-g">g</span> &mdash; path integration already corrected by memory
+      evidence</td>
+      <td>How good memory retrieval is once you are confident about where you are. Sits between the
+      other two.</td>
+    </tr>
+    <tr>
+      <td class="k" style="color:var(--g)">aGt</td>
+      <td class="k">accuracies.gt</td>
+      <td>Path-integrated <span class="v v-g">g_gen</span> only &mdash; actions, no peeking</td>
+      <td><b>This is the headline number.</b> A genuine forecast made before observing. This is where
+      generalisation shows up, and the figure to quote.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p>The expected ordering is <strong>aP &ge; aGinf &ge; aGt</strong>, because that is the order of
+decreasing information. Watch the <em>gap</em> between aP and aGt: it is a direct readout of how
+much the model is leaning on seeing the answer versus actually knowing the structure.</p>
+
+<figure>
+<svg viewBox="0 0 640 210" role="img" aria-label="Chart: expected trajectories of the three accuracy metrics">
+  <line x1="52" y1="20" x2="52" y2="160" stroke="var(--rule)" stroke-width="1.2"/>
+  <line x1="52" y1="160" x2="600" y2="160" stroke="var(--rule)" stroke-width="1.2"/>
+  <g class="tiny" fill="var(--ink-mute)">
+    <text x="44" y="24" text-anchor="end">100%</text>
+    <text x="44" y="94" text-anchor="end">50%</text>
+    <text x="44" y="164" text-anchor="end">0%</text>
+    <text x="52"  y="178" text-anchor="middle">0</text>
+    <text x="326" y="178" text-anchor="middle">training updates &rarr;</text>
+  </g>
+  <!-- chance line -->
+  <line x1="52" y1="157" x2="600" y2="157" stroke="var(--ink-mute)" stroke-width="1" stroke-dasharray="4 3"/>
+  <text x="606" y="160" class="tiny">chance 2.2%</text>
+
+  <path d="M52 160 C 130 60, 200 34, 600 26" stroke="var(--p)" stroke-width="2.2" fill="none"/>
+  <text x="606" y="29" class="tiny" fill="var(--p)">aP</text>
+  <path d="M52 160 C 160 130, 260 80, 600 58" stroke="var(--g)" stroke-width="2.2" fill="none"/>
+  <text x="606" y="61" class="tiny" fill="var(--g)">aGinf</text>
+  <path d="M52 160 C 180 145, 300 100, 600 74" stroke="var(--g)" stroke-width="2.2" fill="none" stroke-dasharray="5 3"/>
+  <text x="606" y="82" class="tiny" fill="var(--g)">aGt</text>
+
+  <text x="52" y="200" class="lbl">Shape, not measured data: the point is the ordering and the persistent gap between aP and aGt.</text>
+</svg>
+<figcaption><b>What a healthy run looks like.</b> Schematic. If aGt hugs the chance line while aP
+climbs to 90%, the model is memorising the current observation and has learned no structure at
+all.</figcaption>
+</figure>
+
+<h3>The losses</h3>
+
+<p>Each accuracy has a matching cross-entropy loss, plus several consistency and regularisation
+terms. All are printed with the same prefixes.</p>
+
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Term</th><th>Type</th><th>What it pushes toward</th></tr></thead>
+  <tbody>
+    <tr><td class="k">lx_p</td><td>cross-entropy</td>
+      <td>Prediction from inferred <span class="v v-p">p</span> should match the observation. Partner
+      of aP.</td></tr>
+    <tr><td class="k">lx_g</td><td>cross-entropy</td>
+      <td>Prediction from inferred <span class="v v-g">g</span> via memory. Partner of aGinf.</td></tr>
+    <tr><td class="k">lx_gt</td><td>cross-entropy</td>
+      <td>Prediction from path integration alone. Partner of aGt &mdash; <b>the one that matters</b>.</td></tr>
+    <tr><td class="k">lp</td><td>squared error</td>
+      <td>The place code you <em>inferred</em> and the one you <em>generated</em> from memory should
+      agree. Keeps memory honest.</td></tr>
+    <tr><td class="k">lg</td><td>squared error</td>
+      <td>Where you think you are and where path integration says you are should agree. This is the
+      term that makes <span class="v v-g">g</span> a consistent map rather than drifting noise.</td></tr>
+    <tr><td class="k">lp_x</td><td>squared error</td>
+      <td>Place code inferred from sensory input should match the full inference. Only active when
+      <code>infer_g_type</code> contains <code>p</code> &mdash; it does by default.</td></tr>
+    <tr><td class="k">lg_reg</td><td>L2 penalty</td>
+      <td>Keeps <span class="v v-g">g</span> activity small. Weight decays to zero over training.</td></tr>
+    <tr><td class="k">lp_reg</td><td>L1 penalty</td>
+      <td>Keeps <span class="v v-p">p</span> activity <em>sparse</em> &mdash; L1, not L2. Sparsity is
+      what makes place cells look like place cells.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="note">
+  <span class="h">A subtlety that changes what the numbers mean</span>
+  <p>Losses are masked by <code>s_visited</code>: the model is only scored on states it has visited
+  before in the current walk. Predicting a node you have never been to is information-theoretically
+  impossible, so those steps are excluded. Accuracies are therefore &ldquo;accuracy where prediction
+  was possible at all&rdquo;, not accuracy over every step.</p>
+</div>
+
+<h3>The scalings line</h3>
+
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Log</th><th>Name</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td class="k">T</td><td class="k">temp</td><td>Weight on the consistency losses (lp, lg). Ramps 0&rarr;1 over 2,000 updates.</td></tr>
+    <tr><td class="k">F</td><td class="k">forget</td><td>Memory decay strength. Reaches 1 within 200 updates.</td></tr>
+    <tr><td class="k">L</td><td class="k">h_l</td><td>Hebbian learning rate scaling. Ramps over 16,000 updates &mdash; the slowest schedule.</td></tr>
+    <tr><td class="k">MaxHebb</td><td>&mdash;</td><td>Largest absolute value in the Hebbian matrix. A stability gauge: it should grow then settle, not explode.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2><span class="num">07</span>Actually running it</h2>
+
+<p>Training writes into a dated run folder <em>outside</em> the source directory, and copies the
+scripts it ran alongside the results, so an old run can always be traced back to the code that
+produced it.</p>
+
+<pre><code>conda activate tem
+cd tem_tf2
+python run_tem.py
+
+<span class="c"># watch it, from the repo root</span>
+tensorboard --logdir=Summaries</code></pre>
+
+<figure class="wide">
+<svg viewBox="0 0 780 220" role="img" aria-label="Diagram: files produced by a training run">
+  <rect x="8" y="24" width="130" height="44" rx="4" fill="var(--g-wash)" stroke="var(--g)" stroke-width="1.4"/>
+  <text x="73" y="44" text-anchor="middle" class="mono tiny" fill="var(--g)">run_tem.py</text>
+  <text x="73" y="60" text-anchor="middle" class="tiny">the training loop</text>
+
+  <path d="M144 46 H 186" stroke="var(--ink-mute)" stroke-width="1.4" marker-end="url(#an)"/>
+
+  <rect x="192" y="12" width="300" height="150" rx="4" fill="var(--surface-2)" stroke="var(--rule)" stroke-width="1.4"/>
+  <text x="208" y="32" class="mono tiny">Summaries/&lt;date&gt;/run&lt;N&gt;/</text>
+  <g class="mono tiny" fill="var(--ink-soft)">
+    <text x="222" y="56">train/</text><text x="300" y="56" class="tiny">TensorBoard event files</text>
+    <text x="222" y="78">model/</text><text x="300" y="78" class="tiny">checkpoints, every 666 updates</text>
+    <text x="222" y="100">save/</text> <text x="300" y="100" class="tiny">saved forward-pass data</text>
+    <text x="222" y="122">script/</text><text x="300" y="122" class="tiny">a copy of the code that ran</text>
+    <text x="222" y="144">*.log</text>  <text x="300" y="144" class="tiny">summaries.log, env_details.log</text>
+  </g>
+
+  <path d="M498 88 H 540" stroke="var(--ink-mute)" stroke-width="1.4" marker-end="url(#an)"/>
+  <rect x="546" y="60" width="224" height="56" rx="4" fill="var(--p-wash)" stroke="var(--p)" stroke-width="1.4"/>
+  <text x="658" y="82" text-anchor="middle" class="mono tiny" fill="var(--p)">TEM_notebook.ipynb</text>
+  <text x="658" y="100" text-anchor="middle" class="tiny">loads a checkpoint, runs a forward</text>
+  <text x="658" y="112" text-anchor="middle" class="tiny">pass, draws the cell rate maps</text>
+
+  <text x="8" y="192" class="lbl">The notebook needs three things set in its first cell: the path to Summaries, the date folder, and the run number.</text>
+  <text x="8" y="206" class="lbl">Run it from inside tem_tf2 &mdash; it imports the sibling modules and uses relative paths.</text>
+</svg>
+<figcaption><b>Where everything lands.</b> Checkpoints are saved every
+<code>int(50000/75) = 666</code> updates. The <code>script/</code> copy means a run remains
+reproducible even after you edit the source.</figcaption>
+</figure>
+
+<h4>Rough expectations</h4>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Milestone</th><th>Updates</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr><td>Graph compilation</td><td class="num">before step 1</td><td>Several minutes of apparent hang with <code>graph_mode=True</code>. Expected, not a crash.</td></tr>
+    <tr><td>First checkpoint</td><td class="num">0</td><td>Untrained. Loading it gives noise-like rate maps.</td></tr>
+    <tr><td>Curriculum complete</td><td class="num">~16,000</td><td>Only now are the accuracies worth reading.</td></tr>
+    <tr><td>Paper-scale training</td><td class="num">up to 50,000</td><td>The figure quoted in the TEM paper for full training.</td></tr>
+    <tr><td>Configured maximum</td><td class="num">2,000,000</td><td><code>train_iters</code>. Stop it long before this.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2><span class="num">08</span>Reading the results</h2>
+
+<p>Loss curves tell you the model trained. They do not tell you what it learned. That question is
+answered by looking at cells &mdash; and the notebook exists for exactly that.</p>
+
+<p>A <strong>rate map</strong> is the simplest possible object: for one cell, colour every location
+in the environment by how active that cell was there, averaged over the walk. What pattern appears
+tells you what kind of cell the network invented on its own.</p>
+
+<figure class="wide">
+<svg viewBox="0 0 780 210" role="img" aria-label="Diagram: cell types identifiable from rate maps">
+  <g>
+    <!-- grid cell -->
+    <rect x="8" y="24" width="112" height="112" rx="3" fill="var(--surface-2)" stroke="var(--rule)"/>
+    <g fill="var(--g)">
+      <circle cx="30" cy="46" r="7"/><circle cx="64" cy="46" r="7"/><circle cx="98" cy="46" r="7"/>
+      <circle cx="47" cy="80" r="7"/><circle cx="81" cy="80" r="7"/>
+      <circle cx="30" cy="114" r="7"/><circle cx="64" cy="114" r="7"/><circle cx="98" cy="114" r="7"/>
+    </g>
+    <text x="8" y="156" class="mono tiny" fill="var(--g)">GRID</text>
+    <text x="8" y="172" class="tiny">Repeating hexagonal</text>
+    <text x="8" y="184" class="tiny">lattice. In g cells.</text>
+
+    <!-- band cell -->
+    <rect x="140" y="24" width="112" height="112" rx="3" fill="var(--surface-2)" stroke="var(--rule)"/>
+    <g fill="var(--g)">
+      <rect x="140" y="38" width="112" height="12"/><rect x="140" y="72" width="112" height="12"/>
+      <rect x="140" y="106" width="112" height="12"/>
+    </g>
+    <text x="140" y="156" class="mono tiny" fill="var(--g)">BAND</text>
+    <text x="140" y="172" class="tiny">Stripes. A grid cell</text>
+    <text x="140" y="184" class="tiny">with one direction.</text>
+
+    <!-- place cell -->
+    <rect x="272" y="24" width="112" height="112" rx="3" fill="var(--surface-2)" stroke="var(--rule)"/>
+    <circle cx="322" cy="74" r="20" fill="var(--p)"/>
+    <text x="272" y="156" class="mono tiny" fill="var(--p)">PLACE</text>
+    <text x="272" y="172" class="tiny">One spot only.</text>
+    <text x="272" y="184" class="tiny">In p cells.</text>
+
+    <!-- border cell -->
+    <rect x="404" y="24" width="112" height="112" rx="3" fill="var(--surface-2)" stroke="var(--rule)"/>
+    <rect x="404" y="24" width="112" height="14" fill="var(--p)"/>
+    <text x="404" y="156" class="mono tiny" fill="var(--p)">BORDER</text>
+    <text x="404" y="172" class="tiny">Fires along an</text>
+    <text x="404" y="184" class="tiny">edge of the space.</text>
+
+    <!-- noise -->
+    <rect x="536" y="24" width="112" height="112" rx="3" fill="var(--surface-2)" stroke="var(--rule)"/>
+    <g fill="var(--ink-mute)" opacity=".55">
+      <circle cx="560" cy="44" r="5"/><circle cx="600" cy="60" r="4"/><circle cx="630" cy="38" r="6"/>
+      <circle cx="570" cy="92" r="4"/><circle cx="612" cy="110" r="5"/><circle cx="586" cy="124" r="4"/>
+      <circle cx="636" cy="88" r="4"/><circle cx="548" cy="116" r="5"/>
+    </g>
+    <text x="536" y="156" class="mono tiny">NO STRUCTURE</text>
+    <text x="536" y="172" class="tiny">Undertrained, or</text>
+    <text x="536" y="184" class="tiny">the cell is unused.</text>
+  </g>
+  <text x="672" y="60" class="tiny">Expect the first</text>
+  <text x="672" y="74" class="tiny">four only after</text>
+  <text x="672" y="88" class="tiny">the curriculum</text>
+  <text x="672" y="102" class="tiny">has finished.</text>
+</svg>
+<figcaption><b>What to look for in <code>square_plot</code> output.</b> The claim of the paper is
+that none of these cell types were designed in &mdash; they emerge from the single objective of
+predicting the next observation, given the architectural split between structure and sense.</figcaption>
+</figure>
+
+<h3>The other number the notebook prints</h3>
+
+<p>Cell 2 reports, per environment, the proportion of visited states predicted correctly:</p>
+
+<pre><code>0   Num_states : 52   Approx proportion : [0.051]   Approx num : [3.]</code></pre>
+
+<p>Read this as: of the states this agent actually visited, about 5.1% were predicted correctly
+&mdash; roughly 3 states out of 52. Compare against chance of 2.2%. The example above comes from an
+<em>untrained</em> checkpoint, which is exactly what near-chance looks like.</p>
+
+<div class="note">
+  <span class="h">The most common mistake</span>
+  <p>Loading iteration 0 and concluding the model does not work. The first checkpoint is written
+  before any training. If the rate maps look like static and accuracy sits near 2%, check which
+  <code>index</code> the notebook loaded before drawing any conclusion.</p>
+</div>
+
+<h2><span class="num">09</span>Quick diagnosis</h2>
+
+<div class="tablewrap">
+<table>
+  <thead><tr><th>What you see</th><th>What it usually means</th></tr></thead>
+  <tbody>
+    <tr><td>aP high, aGt at chance</td><td>Memorising the current observation; no structure learned. Check <code>lg</code> &mdash; if it is not falling, path integration is not being constrained.</td></tr>
+    <tr><td>MaxHebb growing without limit</td><td>Memory instability. Check the <code>forget</code> schedule and &lambda;.</td></tr>
+    <tr><td>All accuracies flat at chance after 20k</td><td>Learning rate or curriculum problem, not a modelling one. Confirm the scalings reached 1.0.</td></tr>
+    <tr><td>Long silence before step 1</td><td>Normal. Graph compilation with <code>graph_mode=True</code>.</td></tr>
+    <tr><td>Rate maps look like noise</td><td>Almost always an early checkpoint. Confirm the loaded iteration first.</td></tr>
+    <tr><td>aGinf equals aGt exactly</td><td>Common early on, while inference has nothing to add over path integration. It should separate as memory becomes useful.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<footer class="end">
+  <p>Model and figures follow Whittington, Muller, Mark, Chen, Barry, Burgess &amp; Behrens,
+  &ldquo;The Tolman-Eichenbaum Machine: Unifying Space and Relational Memory through Generalization
+  in the Hippocampal Formation&rdquo;, <i>Cell</i> 183, 1249&ndash;1263 (2020). Parameter values,
+  loss definitions and log formats in this guide were read from the <code>tem_tf2</code> source in
+  this repository &mdash; <code>parameters.py</code>, <code>tem_model.py</code>,
+  <code>model_utils.py</code> and <code>run_tem.py</code>.</p>
+</footer>
+
+</div>
