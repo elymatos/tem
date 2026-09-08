@@ -1,0 +1,43 @@
+# TEM-t training configuration.
+# Hyperparameters aligned with Whittington et al. (2018, 2021).
+
+train:
+  seed: 0
+  device: cuda
+
+  # Paper: no explicit batch_size; 32 is a reasonable GPU-efficient default
+  batch_size: 32
+
+  # Paper Fig.4: TEM-t converges quickly. 10,000 steps is sufficient
+  # to reproduce grid-like rate maps and non-trivial zero-shot accuracy.
+  num_updates: 10000
+
+  # Paper: BPTT truncated to 25 steps (Appendix B of TEM 2018).
+  # Gradients flow through at most this many recurrent steps,
+  # dramatically reducing computation while preserving learning.
+  truncation_len: 25
+
+  optimizer:
+    name: adam
+    # Paper: ADAM, lr annealed from 1e-3 to 1e-4.
+    # A fixed 1e-3 works well for the truncated BPTT setting.
+    lr: 0.001
+    weight_decay: 0.0
+
+  # Loss weights (paper Appendix: CE for prediction + squared-error
+  # consistency + L2 regularisation on weights and g)
+  loss:
+    lambda_pi: 1.0          # sensory prediction CE (primary objective)
+    lambda_stable: 1.0       # stabilized-position prediction CE
+    lambda_g: 0.1            # consistency between g and g^{PI}
+    lambda_weight: 0.00001   # L2 weight decay
+    lambda_g_l2: 0.0001      # L2 on position encoding norm
+
+  # Gradient clipping (stabilises recurrent training)
+  grad_clip_norm: 1.0
+
+  # Logging intervals
+  logging:
+    log_interval: 100
+    eval_interval: 500
+    save_interval: 2000

@@ -1,0 +1,64 @@
+# TEM-t model configuration.
+# Parameters aligned with Whittington et al. (2018, 2021):
+#   - "Generalisation of structural knowledge in the hippocampal-entorhinal system" (NeurIPS 2018)
+#   - "Relating Transformers to Models and Neural Representations of the Hippocampal Formation" (arXiv 2021)
+
+model:
+  name: temt
+
+  # Data dimensions
+  # Paper: 45 sensory classes, 5 actions (N/E/S/W/stay)
+  n_sensory: 45
+  n_actions: 5
+
+  # Representation dimensions
+  # Paper does not specify exact d_g/d_k/d_v; these are reasonable defaults
+  # chosen to balance expressiveness and compute (aligned with TEM's grid-cell
+  # hierarchy: 5 bands × ~40 cells/band ≈ 200 total).
+  d_g: 128
+  d_k: 64
+  d_v: 128
+
+  # Recurrent activation: identity / relu / tanh
+  # Paper: linear (identity) or ReLU — both produce grid-like patterns.
+  # Grid cells appear more readily with identity; band cells with ReLU.
+  activation: identity
+
+  # Attention
+  # Paper: adaptive softmax temperature β = β_0 · log(n_memories + 1)
+  beta0: 1.0
+  adaptive_beta: true
+
+  # Position normalisation
+  # Paper: fixed layer norm (z-score) on positional encodings before attention
+  use_fixed_layer_norm: true
+
+  # Landmark-based position stabilisation
+  # Paper: sensory landmarks correct drift in recurrent position encodings
+  use_landmark_stabilization: true
+
+  # Landmark retrieval mode: sensory_only / sensory_pi_disambig
+  landmark_mode: sensory_only
+
+  # Episodic memory
+  memory:
+    # Paper: max memory = episode length + 1 ≈ 26 for truncated training
+    max_memory: 201
+    # Paper: deduplication prevents attention bias from revisiting
+    dedup: true
+    dedup_threshold: 1.5
+
+  # Sensory prediction head (MLP mapping d_v → N_x)
+  prediction_head:
+    hidden_dim: 128
+    n_layers: 1
+
+  # TEM baseline parameters (used by script/train_tem_baseline.py)
+  # TEM uses Hebbian conjunctive memory instead of attention slots:
+  #   d_x: sensory projection dim for conjunctive code (outer product with g)
+  #   n_attractor_steps: number of attractor dynamics iterations for retrieval
+  d_x: 32
+  n_attractor_steps: 5
+
+  # Initial position encoding scale
+  init_scale: 0.01
