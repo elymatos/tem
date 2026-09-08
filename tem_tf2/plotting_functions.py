@@ -38,10 +38,10 @@ def square_plot(cells, env, pars, plot_specs, name='sq', lims=(), mask=False, en
         n_cols = np.argmin(
             [np.abs((np.sum([np.ceil(n_f / (i + 0.00001)) for n_f in plot_specs.n_cells_freq]) + len(
                 plot_specs.n_cells_freq) - 1) * y_dim - i * x_dim) for i in range(n)])
-        n_rows = np.sum([np.ceil(n_f / n_cols) for n_f in plot_specs.n_cells_freq]) + len(plot_specs.n_cells_freq) - 1
+        n_rows = int(np.sum([np.ceil(n_f / n_cols) for n_f in plot_specs.n_cells_freq]) + len(plot_specs.n_cells_freq) - 1)
     else:
-        n_cols = np.ceil(np.sqrt(n * y_dim / x_dim))
-        n_rows = np.ceil(np.sqrt(n * x_dim / y_dim))
+        n_cols = int(np.ceil(np.sqrt(n * y_dim / x_dim)))
+        n_rows = int(np.ceil(np.sqrt(n * x_dim / y_dim)))
 
     f = plt.figure(figsize=(18, 18))
     add_on = 0
@@ -115,10 +115,10 @@ def square_autocorr_plot(cells, env, pars, plot_specs, name='auto', env_class=No
         n_cols = np.argmin(
             [np.abs((np.sum([np.ceil(n_f / (i + 0.00001)) for n_f in plot_specs.n_cells_freq]) + len(
                 plot_specs.n_cells_freq) - 1) * y_dim - i * x_dim) for i in range(n)])
-        n_rows = np.sum([np.ceil(n_f / n_cols) for n_f in plot_specs.n_cells_freq]) + len(plot_specs.n_cells_freq) - 1
+        n_rows = int(np.sum([np.ceil(n_f / n_cols) for n_f in plot_specs.n_cells_freq]) + len(plot_specs.n_cells_freq) - 1)
     else:
-        n_cols = np.ceil(np.sqrt(n * y_dim / x_dim))
-        n_rows = np.ceil(np.sqrt(n * x_dim / y_dim))
+        n_cols = int(np.ceil(np.sqrt(n * y_dim / x_dim)))
+        n_rows = int(np.ceil(np.sqrt(n * x_dim / y_dim)))
 
     f = plt.figure(figsize=(18, 18))
     add_on = 0
