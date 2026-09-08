@@ -76,7 +76,7 @@ def square_plot(cells, env, pars, plot_specs, name='sq', lims=(), mask=False, en
 
         # make black bounding box
         ax.patch.set_edgecolor('black')
-        ax.patch.set_linewidth('1')
+        ax.patch.set_linewidth(1)
 
         if plot_specs.max_min:
             maxi = max(cell_)
