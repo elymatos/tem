@@ -759,6 +759,25 @@ closing the loop, two chains for the error branches, and six hand&#8209;written 
 wrong turn. Node 0 is always the start state.</figcaption>
 </figure>
 
+<div class="note">
+  <span class="h">The agent does not act, and reward is not a signal</span>
+  <p>Both words invite the wrong picture. The walk is not produced by the model: <code>env.walk()</code>
+  is called once when the environment is created, and it generates the whole trajectory up front by
+  sampling nothing but the environment's own <code>tran</code> matrix. The model is then <em>told</em>
+  which action was taken, as the input <code>d</code>. It never chooses one. There is no policy, no
+  value function and no reinforcement learning anywhere in the code. Wrong turns onto the error
+  branches are the environment's dice roll at <code>error_prob</code>, not the model's mistakes.</p>
+  <p>Reward is a sensory class like the other forty&#8209;four, drawn at random for each environment.
+  The agent sees it; it does not collect it. What makes those six nodes special is a single line in
+  <code>compute_losses</code>, where cross&#8209;entropy is multiplied by <code>reward_val</code>. That is a
+  weight on the prediction objective, not a reinforcement.</p>
+  <p>So the alternation task here is not the behavioural one. It is not &#8220;choose the correct arm&#8221;
+  but &#8220;on arriving at the top of the centre arm, predict whether you are about to see the reward
+  sense or the no&#8209;reward one&#8221;. Those two nodes are the same physical place, so the only way to call
+  it is to know which loop you are on &#8212; which is exactly the history that a place&#8209;only code
+  throws away.</p>
+</div>
+
 <h4>What the defaults give you</h4>
 <dl class="facts">
   <div><dt>World</dt><dd>frank2000</dd></div>
