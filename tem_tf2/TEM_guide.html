@@ -774,7 +774,7 @@ wrong turn. Node 0 is always the start state.</figcaption>
   <p>So the alternation task here is not the behavioural one. It is not &#8220;choose the correct arm&#8221;
   but &#8220;on arriving at the top of the centre arm, predict whether you are about to see the reward
   sense or the no&#8209;reward one&#8221;. Those two nodes are the same physical place, so the only way to call
-  it is to know which loop you are on &#8212; which is exactly the history that a place&#8209;only code
+  it is to know which loop you are on, which is exactly the history that a place&#8209;only code
   throws away.</p>
 </div>
 
@@ -1900,6 +1900,139 @@ checkpoint, which is exactly what near-chance looks like.</p>
     <tr><td>Long silence before step 1</td><td>Normal. Graph compilation with <code>graph_mode=True</code>.</td></tr>
     <tr><td>Rate maps look like noise</td><td>Almost always an early checkpoint. Confirm the loaded iteration first.</td></tr>
     <tr><td>aGinf equals aGt exactly</td><td>Common early on, while inference has nothing to add over path integration. The two should separate as memory becomes useful.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2><span class="num">12</span>What this codebase is for</h2>
+
+<p>Everything above describes how TEM works. This section describes what the implementation is
+<em>for</em>, which is a different question, and the one that matters if you are deciding whether to
+reuse any of it elsewhere.</p>
+
+<p><code>tem_tf2</code> is the reference implementation for the Tolman&#8209;Eichenbaum Machine, and it
+exists to support one claim: that training a single generative model to predict the next sensory
+observation during random walks on graphs makes grid&#8209;like and place&#8209;like codes appear, and makes
+zero&#8209;shot inference on unvisited edges possible. It is a scientific artifact packaged as runnable
+code. It is not a library, not a product, and not an agent.</p>
+
+<h3>What it optimises</h3>
+
+<p>One objective, cross&#8209;entropy on the next observation, computed three ways. The full list is
+<code>which_costs</code> in <code>parameters.py</code>, and the arithmetic is in
+<code>compute_losses</code>.</p>
+
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Loss</th><th>Prediction it scores</th></tr></thead>
+  <tbody>
+    <tr><td class="k">lx_p</td><td>From the full inferred place code</td></tr>
+    <tr><td class="k">lx_g</td><td>From path integration plus memory</td></tr>
+    <tr><td class="k">lx_gt</td><td>From path integration alone, before anything at this node has been seen</td></tr>
+    <tr><td class="k">lp, lp_x, lg</td><td>Agreement between the inferred and the generated codes</td></tr>
+    <tr><td class="k">lg_reg, lp_reg</td><td>Activity regularisation, decayed away by the curriculum</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p><code>lx_gt</code> is the scientific payload. Everything else exists to make it work.</p>
+
+<h3>The contract</h3>
+
+<p>The network sees six things, assembled by <code>inputs_2_tf</code>:</p>
+
+<pre><code>x               one-hot observation       (seq_len, batch, s_size)
+d               one-hot action taken      (seq_len, batch, n_actions)
+g               grid state carried over   (batch, 120)
+x_              filtered sensory state    (batch, 5 x 10)
+hebb_mat        per-world memory          (batch, 400, 400)
+hebb_mat_inv    per-world memory          (batch, 400, 400)</code></pre>
+
+<p>It returns the three predictions, plus an updated <code>g</code>, <code>x_s</code>,
+<code>a_rnn</code> and <code>a_rnn_inv</code> to carry into the next chunk.</p>
+
+<div class="note">
+  <span class="h">The one fact that decides portability</span>
+  <p>The remaining fields in the input dictionary, <code>positions</code>, <code>reward_pos</code>,
+  <code>reward_val</code> and <code>s_visited</code>, never reach the network. They only weight and
+  mask the loss. The model has no notion of a node, a graph, a world or a reward. It sees an
+  observation and an action. Anything that can produce those two streams can drive it.</p>
+</div>
+
+<h3>Four layers, with different reuse value</h3>
+
+<div class="tablewrap wide">
+<table>
+  <thead><tr><th>Layer</th><th>Files</th><th>How reusable</th></tr></thead>
+  <tbody>
+    <tr><td class="k">Model</td><td class="k">tem_model.py</td>
+      <td>Environment&#8209;agnostic, 1040 lines. Reusable unchanged.</td></tr>
+    <tr><td class="k">Environments</td><td class="k">environments.py</td>
+      <td>1987 lines, nine world types. Each supplies <code>adj</code>, <code>tran</code>,
+      <code>states_mat</code>, <code>relation()</code>, <code>walk()</code> and
+      <code>get_node_positions()</code>. A new world is a subclass plus one <code>if</code> in
+      <code>initialise_environments</code>.</td></tr>
+    <tr><td class="k">Plumbing</td><td class="k">data_utils.py, run_tem.py</td>
+      <td>Batch&#8209;slot lifecycle, memory zeroing, walk chunking, checkpoints. Tied to the design
+      where a batch slot <em>is</em> a world.</td></tr>
+    <tr><td class="k">Analysis</td><td class="k">behaviour_analyses.py, plotting_functions.py, the notebook</td>
+      <td>Rate maps, autocorrelograms, link&#8209;inference curves. Regenerates the paper's figures, and
+      is useful only if you are asking the paper's questions.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>Assumptions baked in</h3>
+
+<p>These, rather than the code structure, decide whether the model ports to another domain.</p>
+
+<ul>
+  <li><b>Actions must compose.</b> <code>g</code> is trained so that path integrating through a
+  sequence of actions matches the destination reached. Your action set needs a consistent algebra. A
+  fully connected graph, or actions whose meaning changes with context, degrade <code>g</code> to
+  noise.</li>
+  <li><b>Observations are one&#8209;hot over a small alphabet.</b> <code>s_size = 45</code> by default,
+  decoded by a softmax. Continuous or high&#8209;dimensional input needs a different <code>MLP_c</code>
+  and a different <code>lx</code>.</li>
+  <li><b>A world's identity is a batch slot index.</b> Slot <code>b</code> holds a live Python object
+  and a memory matrix, and both are wiped when its walk ends. There are no world ids, and nothing is
+  persisted during training.</li>
+  <li><b>Memory is one matrix per world, not a record store.</b> Written by outer products, read only
+  by attractor dynamics.</li>
+  <li><b>The trajectory is fixed before the model runs.</b> <code>env.walk()</code> generates all of
+  it from <code>tran</code>.</li>
+  <li><b>The curriculum is not optional.</b> <code>p2g_use</code>, <code>forget</code>,
+  <code>temp</code> and <code>hebb_learn</code> all ramp over the first few hundred to few thousand
+  updates. Setting them to 1 from the start does not train.</li>
+  <li><b>The published result needs 2,000,000 updates</b> at batch 16, sequence length 75.</li>
+</ul>
+
+<h3>What it is not</h3>
+
+<p>No policy, no value function, no reinforcement learning. No classifier and no supervised head of
+any kind. No action selection. No inference API for a trained model beyond running a forward pass
+over a fresh walk. No persistence of environments during training. Reward is a sensory class with a
+loss multiplier, not a signal.</p>
+
+<h3>Where to cut</h3>
+
+<div class="tablewrap">
+<table>
+  <thead><tr><th>If you want</th><th>Take</th></tr></thead>
+  <tbody>
+    <tr><td>The representation</td>
+      <td><code>tem_model.py</code> unchanged, your own environment in place of
+      <code>environments.py</code>, and your own readout on the rate map built by
+      <code>cell_norm_online</code> or on <code>a_rnn</code>. The cheapest port.</td></tr>
+    <tr><td>The memory mechanism alone</td>
+      <td><code>final_hebbian</code>, <code>attractor</code> and <code>hebb_scal_prod</code> are
+      self&#8209;contained. Holding <code>a</code> and <code>b</code> through the chunk and folding them
+      in at the end is reusable on its own.</td></tr>
+    <tr><td>A sequence model for a structured domain</td>
+      <td>The whole architecture. Settle first whether your domain has composable actions. If it does
+      not, TEM's central mechanism has nothing to do.</td></tr>
+    <tr><td>To reproduce or extend the paper</td>
+      <td>All four layers unchanged, and the budget for the full run.</td></tr>
   </tbody>
 </table>
 </div>
