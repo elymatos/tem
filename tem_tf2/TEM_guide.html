@@ -493,6 +493,66 @@ use it. The default world in <code>parameters.py</code> is not a plain grid but
 it 52 nodes.</figcaption>
 </figure>
 
+<h3>The default world: frank2000, a W-maze</h3>
+
+<p>The name comes from Frank, Brown and Wilson (2000), a rat experiment on continuous spatial
+alternation. The animal runs a W-shaped track with three arms. From the centre arm it must go to one
+side arm, return, then go to the <em>other</em> side arm. Reward arrives only when the alternation is
+correct, so the right answer at the choice point depends on where you came from, not on where you
+are. A purely spatial map cannot solve it.</p>
+
+<p><code>Frank2000</code> in <code>environments.py</code> builds this as a graph rather than a track.
+With the shipped settings (<code>height=5</code>, <code>width=1</code>) it has
+<code>4*(h-1+h+w) + 2*(w+h) = 52</code> nodes: a 40-node main circuit that runs both correct
+alternation loops, plus two 6-node error branches for the wrong turns. Four nodes are rewarded
+(0, 10, 20, 30) and two are the unrewarded ends of the error branches (45, 51).</p>
+
+<figure class="wide">
+<svg viewBox="0 0 780 250" role="img" aria-label="Diagram: the frank2000 W-maze graph with reward and error nodes">
+  <text x="8" y="18" class="mono tiny">THE TASK</text>
+
+  <!-- W track -->
+  <g stroke="var(--rule)" stroke-width="10" fill="none" stroke-linecap="round">
+    <path d="M60 190 V 70"/>
+    <path d="M170 190 V 70"/>
+    <path d="M280 190 V 70"/>
+    <path d="M60 190 H 280"/>
+  </g>
+  <g fill="var(--g)">
+    <circle cx="60" cy="66" r="9"/><circle cx="170" cy="66" r="9"/><circle cx="280" cy="66" r="9"/>
+  </g>
+  <text x="60"  y="52" text-anchor="middle" class="mono tiny" fill="var(--g)">R</text>
+  <text x="170" y="52" text-anchor="middle" class="mono tiny" fill="var(--g)">R</text>
+  <text x="280" y="52" text-anchor="middle" class="mono tiny" fill="var(--g)">R</text>
+  <text x="170" y="214" text-anchor="middle" class="tiny">centre stem</text>
+  <text x="8" y="236" class="tiny">left, centre, right, centre, left ... reward only if the sides alternate</text>
+
+  <!-- rule -->
+  <line x1="330" y1="24" x2="330" y2="230" stroke="var(--rule-soft)"/>
+
+  <text x="356" y="18" class="mono tiny">AS A GRAPH, AS TEM SEES IT</text>
+  <text x="356" y="44" class="lbl">52 nodes. Each carries one of 45 sensory classes, assigned at random</text>
+  <text x="356" y="60" class="lbl">when the environment is created.</text>
+
+  <rect x="356" y="76" width="404" height="26" rx="3" fill="var(--g-wash)" stroke="var(--g)" stroke-width="1.2"/>
+  <text x="368" y="93" class="mono tiny" fill="var(--g)">0 &rarr; 39</text>
+  <text x="440" y="93" class="tiny">main circuit, both alternation loops, rewards at 0, 10, 20, 30</text>
+
+  <rect x="356" y="110" width="404" height="26" rx="3" fill="var(--x-wash)" stroke="var(--x)" stroke-width="1.2"/>
+  <text x="368" y="127" class="mono tiny" fill="var(--x)">40 &rarr; 51</text>
+  <text x="440" y="127" class="tiny">two error branches, dead ends at 45 and 51, no reward</text>
+
+  <text x="356" y="160" class="lbl">A wrong turn is taken with probability <tspan class="mono">error_prob = 0.1</tspan> at each</text>
+  <text x="356" y="176" class="lbl">choice point, which is what puts the agent on an error branch at all.</text>
+  <text x="356" y="200" class="lbl">The two dead ends look identical to a place-only code. Telling them</text>
+  <text x="356" y="216" class="lbl">apart needs the history, which is what the task is testing.</text>
+</svg>
+<figcaption><b>Why this world and not a plain grid.</b> Alternation makes the correct prediction
+depend on the route taken, so the model cannot pass by learning positions alone. Cross-entropy at the
+six reward and no-reward nodes is multiplied by <code>reward_val</code>, which each environment sets
+to <code>n_states/2</code>, so 26 here. Those nodes dominate the loss on purpose.</figcaption>
+</figure>
+
 <h4>What the defaults give you</h4>
 <dl class="facts">
   <div><dt>World</dt><dd>frank2000</dd></div>
@@ -505,10 +565,78 @@ it 52 nodes.</figcaption>
   <div><dt>Training steps</dt><dd>2,000,000</dd></div>
 </dl>
 
-<p>The 16 environments in a batch are all different, and new ones replace them on the fly as walks
-end. So the model never learns one map. It learns what all maps have in common.</p>
+<h3>What "batch (envs)" means here</h3>
 
-<h2><span class="num">03</span>What happens in a single step</h2>
+<p>In most networks a batch is a stack of independent examples. Here it is a stack of 16 independent
+<em>worlds</em>, run in parallel for the whole of training. <code>params.n_envs = params.batch_size
+= 16</code>, and the two numbers are the same thing by construction.</p>
+
+<p>Each of the 16 gets its own graph, its own random assignment of 45 sensory classes to nodes, its
+own walk, and its own Hebbian memory matrix. Nothing is shared between them except the weights. That
+is what forces the weights to hold what is common to all worlds: anything specific to one of the 16
+belongs in that world's memory matrix, not in a weight.</p>
+
+<p>The walks are not synchronised (<code>asyncrounous_envs = True</code>). Each environment draws its
+own walk length, and when one ends, a fresh environment takes that slot in the middle of a batch
+while the other 15 carry on. The model therefore always sees a mix of familiar and brand-new worlds.
+So the model never learns one map. It learns what all maps have in common.</p>
+
+<h2><span class="num">03</span>Steps, updates, and what gets counted</h2>
+
+<p>Three different things in this code are called a step, and the log prints all three. Getting them
+mixed up makes every runtime estimate wrong by a factor of 16 or 75.</p>
+
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Name</th><th>In code</th><th>What it is</th><th>Size</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Environment step</td><td class="k">one iteration of the seq_len loop</td>
+      <td>One move along one edge, in one environment. The six stages in section 04 happen once.</td>
+      <td class="num">1</td>
+    </tr>
+    <tr>
+      <td>Sequence</td><td class="k">seq_len</td>
+      <td>The truncation window for backpropagation through time. Gradients flow across these 75
+      steps and stop at the boundary. The grid code and both memory matrices carry over to the next
+      sequence, detached from the graph.</td>
+      <td class="num">75 steps</td>
+    </tr>
+    <tr>
+      <td>Gradient update</td><td class="k">train_i</td>
+      <td>One call to <code>train_step</code>: run the sequence forward for all 16 environments,
+      sum the losses, take one Adam step. This is the unit every schedule in section 07 counts in.</td>
+      <td class="num">16 &times; 75 = 1,200 steps</td>
+    </tr>
+    <tr>
+      <td><code>total_steps</code> in the log</td><td class="k">train_i * seq_len</td>
+      <td>Steps taken by <em>one</em> environment. It ignores the batch, so the model has really seen
+      16 times this many transitions.</td>
+      <td class="num">75 per update</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p>So the configured maximum of 2,000,000 gradient updates is 2.4 billion environment steps. Nobody
+runs that. The paper's figure is 50,000 updates, and useful structure appears well before then.</p>
+
+<h3>What one gradient update does</h3>
+
+<p>Adam, with the learning rate set fresh on every iteration from the schedule
+<code>(9.4e-4 - 8e-5) * 0.5^(train_i/4000) + 8e-5</code>. That halves the rate every 4,000 updates
+and floors it at <code>8e-5</code>. Every gradient is clipped to norm 2 before it is applied, which
+is what keeps the Hebbian matrix from blowing the whole run up early on.</p>
+
+<div class="note">
+  <span class="h">Walk length is itself a curriculum</span>
+  <p>An environment's walk is <code>n_restart</code> laps of its graph, where <code>n_restart</code>
+  starts at <code>restart_max = 40</code> and decays toward <code>restart_min = 10</code> as training
+  proceeds, plus a jitter of up to 30 laps. Early on the agent gets roughly 2,000 steps to learn a
+  52-node world. Later it gets a quarter of that. The task quietly gets harder.</p>
+</div>
+
+<h2><span class="num">04</span>What happens in a single step</h2>
 
 <p>This loop is the model. It runs 75 times per gradient update, and it is worth understanding
 completely, because every metric you read later is measured at one of these stages.</p>
@@ -577,7 +705,7 @@ completely, because every metric you read later is measured at one of these stag
   <rect x="180" y="260" width="586" height="16" rx="2" fill="var(--p-wash)" stroke="var(--p)" stroke-width="1"/>
   <text x="190" y="272" class="tiny">actions + memory + the current observation itself. Knows the answer</text>
 
-  <text x="14" y="302" class="lbl">Longer bar = more information. The metrics in section 06 are simply</text>
+  <text x="14" y="302" class="lbl">Longer bar = more information. The metrics in section 08 are simply</text>
   <text x="14" y="316" class="lbl">"how well did the model predict, given each of these three levels of access?"</text>
 </svg>
 <figcaption><b>One timestep, and the information ladder that defines every metric.</b> Predicting
@@ -586,12 +714,101 @@ from path integration alone (<span class="v v-g">g_gen</span>) is a real forecas
 confusing them is the easiest way to misread a training run.</figcaption>
 </figure>
 
-<h3>Why memory is a matrix, not a list</h3>
+<h3>What "path integrate" actually computes</h3>
+
+<p>Path integration is dead reckoning: update your estimate of where you are from the movement you
+just made, with no reference to what you can see. TEM does it with a matrix built from the action.</p>
+
+<pre><code><span class="c"># tem_model.py, g2g() and get_g2g_update()</span>
+T     = reshape(t_vec(d), [16, 120, 120]) * mask_g   <span class="c"># action d becomes a transition matrix</span>
+g_gen = clip(g_prev + T @ g_prev, -1, 1)             <span class="c"># the whole of path integration</span></code></pre>
+
+<p><code>d</code> is the action just taken, one of <code>up</code>, <code>down</code>,
+<code>left</code>, <code>right</code> in this world. A small network turns it into a 120 &times; 120
+matrix, so the model learns a separate linear operator per action rather than being handed one.
+<code>mask_g</code> then zeroes most of that matrix: modules may only be driven by modules at their
+own timescale or slower, which is the hierarchy of section 06.</p>
+
+<p>Two properties matter. The update is a function of the action alone, so <code>g_gen</code> cannot
+smuggle in the current observation. And it is applied over and over, so error accumulates: after
+enough steps the estimate has drifted, exactly as an animal's does.</p>
+
+<h3>What "fix drift in g" means</h3>
+
+<p>Correcting that drift is the job of <code>p2g</code>, and it works by pattern completion. Take
+what you can see right now, use it to query memory, and see which structural slot the memory that
+comes back was stored in.</p>
+
+<ol>
+  <li>The current observation becomes place-cell input <code>x2p</code>.</li>
+  <li>That runs through the attractor over the <em>inverse</em> memory matrix, giving a retrieved
+  place code <code>p_x</code>.</li>
+  <li>Averaging <code>p_x</code> over the 10 sensory components of each phase strips the sensory part
+  back out, leaving a structural estimate. A per-module layer maps it to <code>mu_p2g</code>.</li>
+  <li>A second head produces that estimate's uncertainty from how well the retrieved memory
+  reconstructs the observation. A bad retrieval reports a large <code>sigma</code>.</li>
+  <li><code>combine2</code> fuses the two estimates by precision, the standard Gaussian product:
+  <code>mu = sigma&sup2; (mu_path/sigma_path&sup2; + mu_mem/sigma_mem&sup2;)</code>. Whichever source
+  is more confident wins.</li>
+</ol>
+
+<p>That fusion is the whole of drift correction. Path integration proposes, memory corrects, and the
+weighting is learned rather than fixed. The result is <code>g</code>, as opposed to
+<code>g_gen</code>.</p>
+
+<div class="note">
+  <span class="h">Why the correction is switched off at the start</span>
+  <p>Memory is nonsense on update 1, so trusting it would poison <code>g</code>. The code adds
+  <code>(1 - p2g_use) * 10000</code> to <code>sigma_p2g</code>, an uncertainty so large that
+  <code>combine2</code> ignores memory entirely. As <code>p2g_use</code> rises from 0 to 1 over the
+  first few hundred updates, memory is let in. This is the single most important thing the
+  curriculum does.</p>
+</div>
+
+<h3>Three phrases this guide uses precisely</h3>
+
+<p>The same underlying question, "what will I see next", gets asked three times per step from three
+different states. The shorthand for each:</p>
+
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Phrase</th><th>Prediction</th><th>Knows</th><th>Does not know</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><b>Honest prediction</b>, or <b>real forecast</b></td>
+      <td class="k">x_gt = f_x(gen_p(g_gen))</td>
+      <td>Every action taken so far, and everything in memory</td>
+      <td>The observation it is being scored against. It is a forecast in the ordinary sense: made
+      before the fact, from a state that cannot contain the answer.</td>
+    </tr>
+    <tr>
+      <td>Corrected prediction</td>
+      <td class="k">x_g = f_x(gen_p(g))</td>
+      <td>The same, plus the drift correction that used the current observation to fix
+      <code>g</code></td>
+      <td>The answer directly, though the correction has touched it. This is why aGinf sits above
+      aGt.</td>
+    </tr>
+    <tr>
+      <td><b>Reading the answer off the page</b></td>
+      <td class="k">x_p = f_x(p)</td>
+      <td>Everything, including the current observation, which went into <code>p</code> through
+      <code>x2p</code></td>
+      <td>Nothing. Predicting x from a code built out of x is an autoencoder round trip, so a high
+      score here proves that the encoder and decoder are wired up, and nothing about structure.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p>All three are trained, and all three should be. The autoencoder path has to work before anything
+else can. The mistake is quoting aP as the model's performance.</p>
+
+<h2><span class="num">05</span>Memory: one matrix, written in one shot</h2>
 
 <p>TEM does not keep a list of past events. It keeps one matrix, <code>a_rnn</code> in the code, and
-adds every new memory into it by Hebbian learning, the outer product of the place code with
-itself. Retrieval is not a lookup; it is an attractor process that settles onto the stored pattern
-closest to what you asked for.</p>
+adds every new memory into it by Hebbian learning. Retrieval is not a lookup. It is an attractor
+process that settles onto the stored pattern closest to what you asked for.</p>
 
 <figure>
 <svg viewBox="0 0 640 200" role="img" aria-label="Diagram: Hebbian memory formation and retrieval">
@@ -631,8 +848,156 @@ closest to what you asked for.</p>
 a new environment possible. TEM keeps two of them, <code>a_rnn</code> and <code>a_rnn_inv</code>, one
 for each direction of retrieval.</figcaption>
 </figure>
+<h3>How a memory is actually added</h3>
 
-<h2><span class="num">04</span>Grid cells come from frequency bands</h2>
+<p>The textbook Hebbian write is <code>M += p p&#7488;</code>. TEM does not do that. It writes the
+difference between what it inferred and what it predicted, which stops it re-storing things it could
+already retrieve.</p>
+
+<pre><code><span class="c"># tem_model.py, hebbian() collects these each timestep</span>
+a = p - p_g          <span class="c"># inferred place code minus the one generated from memory</span>
+b = p + p_g
+
+<span class="c"># final_hebbian(), once per 75-step sequence</span>
+M &larr; clip( M * (forget * &lambda;)^75  +  b @ (a * forget_vec)&#7488; * mask_p,  -1, +1 )</code></pre>
+
+<p>Read the update term as a product: <code>b a&#7488; = p p&#7488; - p_g p_g&#7488; + p_g p&#7488; -
+p p_g&#7488;</code>. The first part stores the new pattern. The rest subtracts off what memory
+already generated. If the model predicted the place code perfectly then <code>p = p_g</code>,
+<code>a = 0</code>, and nothing is written at all. This is the fast-weights rule from Ba et al.
+(2016), and it is why memory does not saturate on repeated visits to the same node.</p>
+
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Term</th><th>Value</th><th>Job</th></tr></thead>
+  <tbody>
+    <tr><td class="k">&lambda;</td><td class="num">0.9999</td>
+      <td>Passive decay per step. Old memories fade whatever else happens.</td></tr>
+    <tr><td class="k">forget</td><td class="num">0 &rarr; 1 over 200 updates</td>
+      <td>Curriculum multiplier on that decay. At update 1 it is 0.005, so
+      <code>(forget * &lambda;)^75</code> is effectively zero and each sequence starts from a blank
+      matrix.</td></tr>
+    <tr><td class="k">forget_vec</td><td class="num">(forget &lambda;)^(74...0)</td>
+      <td>Within one sequence, memories laid down earlier are already more faded than the ones at
+      the end.</td></tr>
+    <tr><td class="k">&eta;</td><td class="num">0.5</td>
+      <td>Write strength. Enters as <code>sqrt(&eta; * h_l)</code> on each stored vector, so the
+      product of two of them carries the full <code>&eta; * h_l</code>.</td></tr>
+    <tr><td class="k">h_l</td><td class="num">0 &rarr; 1 over 16,000 updates</td>
+      <td>The curriculum on write strength. The slowest ramp in the model.</td></tr>
+    <tr><td class="k">mask_p</td><td class="num">0/1 matrix</td>
+      <td>Blocks connections between place modules that the hierarchy does not allow.</td></tr>
+    <tr><td class="k">hebb_lim</td><td class="num">&plusmn;1</td>
+      <td>Hard clip on every entry. <code>MaxHebb</code> in the log is the largest absolute value, so
+      it can never exceed 1. If it pins at 1, memory has saturated.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>Two matrices are built this way. <code>a_rnn</code> uses <code>a, b</code> from
+<code>p_g</code> and retrieves a place code from a structural query. <code>a_rnn_inv</code> uses
+<code>p - p_x, p + p_x</code> and retrieves in the other direction, from sensory input, which is what
+<code>p2g</code> needs to correct drift.</p>
+
+<h3>The attractor loop</h3>
+
+<p>Retrieval is iterative. You start from a partial or noisy pattern, multiply by the memory matrix,
+damp, clip, and repeat. Each pass pulls the state further toward whichever stored pattern it most
+resembles.</p>
+
+<pre><code>p = f_p(init)
+for i in 0..4:                              <span class="c"># n_recurs = n_freq = 5</span>
+    update = M @ p                          <span class="c"># as scalar products, not a real matmul</span>
+    for f in modules still active at i:
+        p[f] = f_p(0.8 * p[f] + update[f])  <span class="c"># kappa = 0.8</span></code></pre>
+
+<p><code>kappa = 0.8</code> is how much of the current state survives each pass. Below 1 the loop
+contracts toward a fixed point instead of ringing. <code>f_p</code> is a leaky ReLU on values clipped
+to <code>[-1, 1]</code>, so activity cannot run away.</p>
+
+<p>The loop is not uniform across modules. <code>max_attractor_its = [5, 4, 3, 2, 1]</code> stops
+each module after a set number of passes, fastest module first to finish last:</p>
+
+<figure>
+<svg viewBox="0 0 640 200" role="img" aria-label="Diagram: which frequency modules update on each of the five attractor iterations">
+  <text x="8" y="16" class="mono tiny">ATTRACTOR ITERATION</text>
+  <g class="tiny" fill="var(--ink-mute)">
+    <text x="150" y="16" text-anchor="middle">1</text>
+    <text x="240" y="16" text-anchor="middle">2</text>
+    <text x="330" y="16" text-anchor="middle">3</text>
+    <text x="420" y="16" text-anchor="middle">4</text>
+    <text x="510" y="16" text-anchor="middle">5</text>
+  </g>
+  <line x1="8" y1="24" x2="632" y2="24" stroke="var(--rule)"/>
+  <text x="8" y="56" class="mono tiny" fill="var(--p)">module 0</text>
+  <text x="78" y="56" class="tiny">100 p cells</text>
+  <rect x="116" y="44" width="68" height="18" rx="3" fill="var(--p-wash)" stroke="var(--p)" stroke-width="1.2"/>
+  <text x="150" y="57" text-anchor="middle" class="mono tiny" fill="var(--p)">update</text>
+  <rect x="206" y="44" width="68" height="18" rx="3" fill="var(--p-wash)" stroke="var(--p)" stroke-width="1.2"/>
+  <text x="240" y="57" text-anchor="middle" class="mono tiny" fill="var(--p)">update</text>
+  <rect x="296" y="44" width="68" height="18" rx="3" fill="var(--p-wash)" stroke="var(--p)" stroke-width="1.2"/>
+  <text x="330" y="57" text-anchor="middle" class="mono tiny" fill="var(--p)">update</text>
+  <rect x="386" y="44" width="68" height="18" rx="3" fill="var(--p-wash)" stroke="var(--p)" stroke-width="1.2"/>
+  <text x="420" y="57" text-anchor="middle" class="mono tiny" fill="var(--p)">update</text>
+  <rect x="476" y="44" width="68" height="18" rx="3" fill="var(--p-wash)" stroke="var(--p)" stroke-width="1.2"/>
+  <text x="510" y="57" text-anchor="middle" class="mono tiny" fill="var(--p)">update</text>
+  <text x="8" y="82" class="mono tiny" fill="var(--p)">module 1</text>
+  <text x="78" y="82" class="tiny">100 p cells</text>
+  <rect x="116" y="70" width="68" height="18" rx="3" fill="var(--p-wash)" stroke="var(--p)" stroke-width="1.2"/>
+  <text x="150" y="83" text-anchor="middle" class="mono tiny" fill="var(--p)">update</text>
+  <rect x="206" y="70" width="68" height="18" rx="3" fill="var(--p-wash)" stroke="var(--p)" stroke-width="1.2"/>
+  <text x="240" y="83" text-anchor="middle" class="mono tiny" fill="var(--p)">update</text>
+  <rect x="296" y="70" width="68" height="18" rx="3" fill="var(--p-wash)" stroke="var(--p)" stroke-width="1.2"/>
+  <text x="330" y="83" text-anchor="middle" class="mono tiny" fill="var(--p)">update</text>
+  <rect x="386" y="70" width="68" height="18" rx="3" fill="var(--p-wash)" stroke="var(--p)" stroke-width="1.2"/>
+  <text x="420" y="83" text-anchor="middle" class="mono tiny" fill="var(--p)">update</text>
+  <rect x="476" y="70" width="68" height="18" rx="3" fill="none" stroke="var(--rule)" stroke-width="1" stroke-dasharray="3 3"/>
+  <text x="510" y="83" text-anchor="middle" class="tiny">held</text>
+  <text x="8" y="108" class="mono tiny" fill="var(--p)">module 2</text>
+  <text x="78" y="108" class="tiny">80 p cells</text>
+  <rect x="116" y="96" width="68" height="18" rx="3" fill="var(--p-wash)" stroke="var(--p)" stroke-width="1.2"/>
+  <text x="150" y="109" text-anchor="middle" class="mono tiny" fill="var(--p)">update</text>
+  <rect x="206" y="96" width="68" height="18" rx="3" fill="var(--p-wash)" stroke="var(--p)" stroke-width="1.2"/>
+  <text x="240" y="109" text-anchor="middle" class="mono tiny" fill="var(--p)">update</text>
+  <rect x="296" y="96" width="68" height="18" rx="3" fill="var(--p-wash)" stroke="var(--p)" stroke-width="1.2"/>
+  <text x="330" y="109" text-anchor="middle" class="mono tiny" fill="var(--p)">update</text>
+  <rect x="386" y="96" width="68" height="18" rx="3" fill="none" stroke="var(--rule)" stroke-width="1" stroke-dasharray="3 3"/>
+  <text x="420" y="109" text-anchor="middle" class="tiny">held</text>
+  <rect x="476" y="96" width="68" height="18" rx="3" fill="none" stroke="var(--rule)" stroke-width="1" stroke-dasharray="3 3"/>
+  <text x="510" y="109" text-anchor="middle" class="tiny">held</text>
+  <text x="8" y="134" class="mono tiny" fill="var(--p)">module 3</text>
+  <text x="78" y="134" class="tiny">60 p cells</text>
+  <rect x="116" y="122" width="68" height="18" rx="3" fill="var(--p-wash)" stroke="var(--p)" stroke-width="1.2"/>
+  <text x="150" y="135" text-anchor="middle" class="mono tiny" fill="var(--p)">update</text>
+  <rect x="206" y="122" width="68" height="18" rx="3" fill="var(--p-wash)" stroke="var(--p)" stroke-width="1.2"/>
+  <text x="240" y="135" text-anchor="middle" class="mono tiny" fill="var(--p)">update</text>
+  <rect x="296" y="122" width="68" height="18" rx="3" fill="none" stroke="var(--rule)" stroke-width="1" stroke-dasharray="3 3"/>
+  <text x="330" y="135" text-anchor="middle" class="tiny">held</text>
+  <rect x="386" y="122" width="68" height="18" rx="3" fill="none" stroke="var(--rule)" stroke-width="1" stroke-dasharray="3 3"/>
+  <text x="420" y="135" text-anchor="middle" class="tiny">held</text>
+  <rect x="476" y="122" width="68" height="18" rx="3" fill="none" stroke="var(--rule)" stroke-width="1" stroke-dasharray="3 3"/>
+  <text x="510" y="135" text-anchor="middle" class="tiny">held</text>
+  <text x="8" y="160" class="mono tiny" fill="var(--p)">module 4</text>
+  <text x="78" y="160" class="tiny">60 p cells</text>
+  <rect x="116" y="148" width="68" height="18" rx="3" fill="var(--p-wash)" stroke="var(--p)" stroke-width="1.2"/>
+  <text x="150" y="161" text-anchor="middle" class="mono tiny" fill="var(--p)">update</text>
+  <rect x="206" y="148" width="68" height="18" rx="3" fill="none" stroke="var(--rule)" stroke-width="1" stroke-dasharray="3 3"/>
+  <text x="240" y="161" text-anchor="middle" class="tiny">held</text>
+  <rect x="296" y="148" width="68" height="18" rx="3" fill="none" stroke="var(--rule)" stroke-width="1" stroke-dasharray="3 3"/>
+  <text x="330" y="161" text-anchor="middle" class="tiny">held</text>
+  <rect x="386" y="148" width="68" height="18" rx="3" fill="none" stroke="var(--rule)" stroke-width="1" stroke-dasharray="3 3"/>
+  <text x="420" y="161" text-anchor="middle" class="tiny">held</text>
+  <rect x="476" y="148" width="68" height="18" rx="3" fill="none" stroke="var(--rule)" stroke-width="1" stroke-dasharray="3 3"/>
+  <text x="510" y="161" text-anchor="middle" class="tiny">held</text>
+  <text x="8" y="188" class="lbl">Slow modules stop early because a coarse code has less to settle. The fast module keeps iterating.</text>
+</svg>
+<figcaption><b>Early stopping, per module.</b> Module 0 gets all five passes, module 4 gets one. The
+schedule is <code>max_attractor_its = [n_recurs - f]</code>, straight out of
+<code>parameters.py</code>, and it is why retrieval costs less than five full matrix products.
+</figcaption>
+</figure>
+
+<h2><span class="num">06</span>Grid cells come from frequency bands</h2>
 
 <p>The 120 <span class="v v-g">g</span> cells are not one undifferentiated pool. They are split into
 five modules that are forced to update at different rates, from fast to slow. This is a structural
@@ -679,8 +1044,151 @@ different scales appear after training.</p>
 discrete modules found in entorhinal cortex. When you look at rate maps later, expect the leftmost
 band to show tight periodic patterns and the rightmost to show broad ones.</figcaption>
 </figure>
+<figure class="wide">
+<svg viewBox="0 0 780 250" role="img" aria-label="Diagram: five grid modules with progressively wider firing lattices">
+  <defs>
+    <clipPath id="pan0"><rect x="8" y="34" width="140" height="116" rx="4"/></clipPath>
+    <clipPath id="pan1"><rect x="156" y="34" width="140" height="116" rx="4"/></clipPath>
+    <clipPath id="pan2"><rect x="304" y="34" width="140" height="116" rx="4"/></clipPath>
+    <clipPath id="pan3"><rect x="452" y="34" width="140" height="116" rx="4"/></clipPath>
+    <clipPath id="pan4"><rect x="600" y="34" width="140" height="116" rx="4"/></clipPath>
+  </defs>
+  <text x="8" y="14" class="mono tiny">IDEALISED FIRING LATTICE PER MODULE, SAME ENVIRONMENT IN EVERY PANEL</text>
+  <rect x="8" y="34" width="140" height="116" rx="4" fill="var(--surface-2)" stroke="var(--rule)"/>
+  <g clip-path="url(#pan0)">
+    <circle cx="19.7" cy="46.4" r="4.4" fill="var(--g)"/>
+    <circle cx="45.7" cy="46.4" r="4.4" fill="var(--g)"/>
+    <circle cx="71.7" cy="46.4" r="4.4" fill="var(--g)"/>
+    <circle cx="97.7" cy="46.4" r="4.4" fill="var(--g)"/>
+    <circle cx="123.7" cy="46.4" r="4.4" fill="var(--g)"/>
+    <circle cx="32.7" cy="68.9" r="4.4" fill="var(--g)"/>
+    <circle cx="58.7" cy="68.9" r="4.4" fill="var(--g)"/>
+    <circle cx="84.7" cy="68.9" r="4.4" fill="var(--g)"/>
+    <circle cx="110.7" cy="68.9" r="4.4" fill="var(--g)"/>
+    <circle cx="136.7" cy="68.9" r="4.4" fill="var(--g)"/>
+    <circle cx="19.7" cy="91.4" r="4.4" fill="var(--g)"/>
+    <circle cx="45.7" cy="91.4" r="4.4" fill="var(--g)"/>
+    <circle cx="71.7" cy="91.4" r="4.4" fill="var(--g)"/>
+    <circle cx="97.7" cy="91.4" r="4.4" fill="var(--g)"/>
+    <circle cx="123.7" cy="91.4" r="4.4" fill="var(--g)"/>
+    <circle cx="32.7" cy="113.9" r="4.4" fill="var(--g)"/>
+    <circle cx="58.7" cy="113.9" r="4.4" fill="var(--g)"/>
+    <circle cx="84.7" cy="113.9" r="4.4" fill="var(--g)"/>
+    <circle cx="110.7" cy="113.9" r="4.4" fill="var(--g)"/>
+    <circle cx="136.7" cy="113.9" r="4.4" fill="var(--g)"/>
+    <circle cx="19.7" cy="136.4" r="4.4" fill="var(--g)"/>
+    <circle cx="45.7" cy="136.4" r="4.4" fill="var(--g)"/>
+    <circle cx="71.7" cy="136.4" r="4.4" fill="var(--g)"/>
+    <circle cx="97.7" cy="136.4" r="4.4" fill="var(--g)"/>
+    <circle cx="123.7" cy="136.4" r="4.4" fill="var(--g)"/>
+  </g>
+  <text x="8" y="26" class="mono tiny" fill="var(--g)">module 0</text>
+  <text x="8" y="170" class="mono tiny">30 g cells</text>
+  <text x="8" y="186" class="tiny">100 p cells &middot; smoothing 0.01</text>
+  <rect x="156" y="34" width="140" height="116" rx="4" fill="var(--surface-2)" stroke="var(--rule)"/>
+  <g clip-path="url(#pan1)">
+    <circle cx="171.3" cy="50.2" r="5.8" fill="var(--g)"/>
+    <circle cx="205.3" cy="50.2" r="5.8" fill="var(--g)"/>
+    <circle cx="239.3" cy="50.2" r="5.8" fill="var(--g)"/>
+    <circle cx="273.3" cy="50.2" r="5.8" fill="var(--g)"/>
+    <circle cx="188.3" cy="79.6" r="5.8" fill="var(--g)"/>
+    <circle cx="222.3" cy="79.6" r="5.8" fill="var(--g)"/>
+    <circle cx="256.3" cy="79.6" r="5.8" fill="var(--g)"/>
+    <circle cx="290.3" cy="79.6" r="5.8" fill="var(--g)"/>
+    <circle cx="171.3" cy="109.1" r="5.8" fill="var(--g)"/>
+    <circle cx="205.3" cy="109.1" r="5.8" fill="var(--g)"/>
+    <circle cx="239.3" cy="109.1" r="5.8" fill="var(--g)"/>
+    <circle cx="273.3" cy="109.1" r="5.8" fill="var(--g)"/>
+    <circle cx="188.3" cy="138.5" r="5.8" fill="var(--g)"/>
+    <circle cx="222.3" cy="138.5" r="5.8" fill="var(--g)"/>
+    <circle cx="256.3" cy="138.5" r="5.8" fill="var(--g)"/>
+    <circle cx="290.3" cy="138.5" r="5.8" fill="var(--g)"/>
+  </g>
+  <text x="156" y="26" class="mono tiny" fill="var(--g)">module 1</text>
+  <text x="156" y="170" class="mono tiny">30 g cells</text>
+  <text x="156" y="186" class="tiny">100 p cells &middot; smoothing 0.70</text>
+  <rect x="304" y="34" width="140" height="116" rx="4" fill="var(--surface-2)" stroke="var(--rule)"/>
+  <g clip-path="url(#pan2)">
+    <circle cx="324.7" cy="55.9" r="6.0" fill="var(--g)"/>
+    <circle cx="370.7" cy="55.9" r="6.0" fill="var(--g)"/>
+    <circle cx="416.7" cy="55.9" r="6.0" fill="var(--g)"/>
+    <circle cx="347.7" cy="95.7" r="6.0" fill="var(--g)"/>
+    <circle cx="393.7" cy="95.7" r="6.0" fill="var(--g)"/>
+    <circle cx="439.7" cy="95.7" r="6.0" fill="var(--g)"/>
+    <circle cx="324.7" cy="135.6" r="6.0" fill="var(--g)"/>
+    <circle cx="370.7" cy="135.6" r="6.0" fill="var(--g)"/>
+    <circle cx="416.7" cy="135.6" r="6.0" fill="var(--g)"/>
+  </g>
+  <text x="304" y="26" class="mono tiny" fill="var(--g)">module 2</text>
+  <text x="304" y="170" class="mono tiny">24 g cells</text>
+  <text x="304" y="186" class="tiny">80 p cells &middot; smoothing 0.91</text>
+  <rect x="452" y="34" width="140" height="116" rx="4" fill="var(--surface-2)" stroke="var(--rule)"/>
+  <g clip-path="url(#pan3)">
+    <circle cx="479.9" cy="63.5" r="6.0" fill="var(--g)"/>
+    <circle cx="541.9" cy="63.5" r="6.0" fill="var(--g)"/>
+    <circle cx="510.9" cy="117.2" r="6.0" fill="var(--g)"/>
+    <circle cx="572.9" cy="117.2" r="6.0" fill="var(--g)"/>
+  </g>
+  <text x="452" y="26" class="mono tiny" fill="var(--g)">module 3</text>
+  <text x="452" y="170" class="mono tiny">18 g cells</text>
+  <text x="452" y="186" class="tiny">60 p cells &middot; smoothing 0.97</text>
+  <rect x="600" y="34" width="140" height="116" rx="4" fill="var(--surface-2)" stroke="var(--rule)"/>
+  <g clip-path="url(#pan4)">
+    <circle cx="637.8" cy="74.0" r="6.0" fill="var(--g)"/>
+    <circle cx="721.8" cy="74.0" r="6.0" fill="var(--g)"/>
+    <circle cx="679.8" cy="146.8" r="6.0" fill="var(--g)"/>
+  </g>
+  <text x="600" y="26" class="mono tiny" fill="var(--g)">module 4</text>
+  <text x="600" y="170" class="mono tiny">18 g cells</text>
+  <text x="600" y="186" class="tiny">60 p cells &middot; smoothing 0.99</text>
+  <path d="M8 210 H 740" stroke="var(--rule)" stroke-width="1"/>
+  <path d="M8 210 L 8 204 M740 210 L 740 204" stroke="var(--rule)" stroke-width="1"/>
+  <text x="8" y="228" class="tiny">fast module: sensory input barely smoothed, code changes on almost every step, tight spacing</text>
+  <text x="740" y="228" text-anchor="end" class="tiny">slow module: heavily smoothed, changes over many steps, wide spacing</text>
+</svg>
+<figcaption><b>Same room, five scales.</b> Each panel is one module's firing pattern over the same
+environment. Nothing in the code draws these lattices. They come out of the timescale split: a module
+whose sensory input is smoothed with constant 0.99 cannot change quickly, so whatever it encodes has
+to repeat over a longer distance. The number under each panel is the initial smoothing constant from
+<code>params.freqs</code>, and it is trainable, so the model can move these scales.</figcaption>
+</figure>
 
-<h2><span class="num">05</span>The training curriculum</h2>
+<h3>What "structural prior" means</h3>
+
+<p>A structural prior is a constraint built into the architecture rather than learned from data. It
+does not say what the answer is. It restricts the shape of the answers the model can represent, so
+that the ones the world actually supports are easy to reach. TEM has five, all in
+<code>parameters.py</code>, and grid cells do not appear without them.</p>
+
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Prior</th><th>Where</th><th>What it forces</th></tr></thead>
+  <tbody>
+    <tr><td>Split into 5 modules</td><td class="k">n_grids_all = [30,30,24,18,18]</td>
+      <td>The structural code cannot be one undifferentiated pool.</td></tr>
+    <tr><td>A timescale per module</td><td class="k">freqs, gamma</td>
+      <td>Module <code>f</code> smooths its sensory stream as
+      <code>x&#7511; = a x&#7511;&#8331;&#8321; + (1-a) x</code> with its own <code>a</code>. Fast
+      modules track single steps, slow ones average over many. Trainable, but it starts split.</td></tr>
+    <tr><td>Hierarchical transitions</td><td class="k">mask_g, R_G_F_f</td>
+      <td>A module can be driven by its own timescale and slower, never by a faster one. Coarse
+      structure informs fine, not the reverse.</td></tr>
+    <tr><td>Place cells are a product</td><td class="k">n_place_all = n_phases * 10</td>
+      <td><code>p</code> is the outer product of a structural phase with a sensory component, then
+      flattened. It cannot represent a location without representing what is there.</td></tr>
+    <tr><td>Two-hot sensory code</td><td class="k">two_hot = True, s_size_comp = 10</td>
+      <td>Each of the 45 stimuli is a pair of active units out of 10, and
+      <code>C(10,2) = 45</code> exactly. Stimuli share units, so the model cannot treat them as 45
+      unrelated symbols.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>Nothing here mentions hexagons, spacing, or space at all. That is the claim worth taking
+seriously: give a predictive model a factorised code, a hierarchy of timescales, and a fast Hebbian
+memory, and grid cells fall out of prediction on graphs.</p>
+
+<h2><span class="num">07</span>The training curriculum</h2>
 
 <p>You cannot train TEM by switching everything on at once. The memory would be garbage on step
 one, and inference that trusted it would never recover. Instead several quantities ramp up over the
@@ -732,10 +1240,77 @@ and knowing their schedule tells you whether a run is behaving.</p>
 </svg>
 <figcaption><b>What ramps, and when.</b> <code>forget</code> reaches full strength almost
 immediately; <code>temp</code> (the weight on the consistency losses) takes 2,000 updates;
-<code>hebb_learn</code> takes 16,000. Two others run the opposite way. The activity regularisers
-<code>g_cell_reg</code> and <code>p_cell_reg</code> decay from 1 to 0, so they constrain the early
-representations and then let go.</figcaption>
+<code>hebb_learn</code> takes 16,000. One quantity runs the opposite way: <code>p_cell_reg</code>
+decays from 1 to 0 over 4,000 updates, so the sparsity penalty on <code>p</code> constrains early
+representations and then lets go. Its counterpart <code>g_cell_reg</code> is scheduled over
+40,000,000 updates, which means it never meaningfully moves.</figcaption>
 </figure>
+
+<h3>Which quantities ramp, and what each one gates</h3>
+
+<p>"Several quantities ramp up" means five scalars, recomputed from the update counter on every
+iteration by <code>get_scaling_parameters</code> and passed into the model as
+<code>scalings</code>. They are not learned. They are a fixed function of <code>train_i</code>.</p>
+
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Scaling</th><th>Formula</th><th>Full by</th><th>What it gates</th></tr></thead>
+  <tbody>
+    <tr>
+      <td class="k">forget</td>
+      <td class="k">min((i+1)/200, 1)</td>
+      <td class="num">200</td>
+      <td>Multiplies <code>&lambda;</code> in every memory decay term. At 0.005 on update 1 the
+      matrix is wiped each sequence, so the model is forced to learn path integration before it can
+      lean on memory at all.</td>
+    </tr>
+    <tr>
+      <td class="k">p2g_use</td>
+      <td class="k">sigmoid(i/200)</td>
+      <td class="num">~600</td>
+      <td>Adds <code>(1 - p2g_use) * 10000</code> to the uncertainty of the memory-based estimate of
+      <code>g</code>. While it is near 0, drift correction is switched off. It also scales the
+      <code>lp_x</code> loss. Note it starts at 0.5, not 0, because the sigmoid is centred on
+      <code>p2g_use_it = 0</code>.</td>
+    </tr>
+    <tr>
+      <td class="k">temp</td>
+      <td class="k">min((i+1)/2000, 1)</td>
+      <td class="num">2,000</td>
+      <td>Weight on the consistency losses <code>lp</code>, <code>lg</code> and <code>lp_x</code>.
+      Demanding that inference and generation agree is meaningless while both are noise, so it is
+      phased in.</td>
+    </tr>
+    <tr>
+      <td class="k">h_l</td>
+      <td class="k">min((i+1)/16000, 1)</td>
+      <td class="num">16,000</td>
+      <td>Write strength, as <code>sqrt(&eta; * h_l)</code> on every stored vector. The slowest ramp,
+      and the reason accuracies before 16,000 updates do not mean much.</td>
+    </tr>
+    <tr>
+      <td class="k">p_cell_reg</td>
+      <td class="k">1 - min((i+1)/4000, 1)</td>
+      <td class="num">0 by 4,000</td>
+      <td>Runs the other way. The L1 sparsity penalty on <code>p</code> is strong early, then
+      released once place cells have taken shape.</td>
+    </tr>
+    <tr>
+      <td class="k">g_cell_reg</td>
+      <td class="k">1 - min((i+1)/4e7, 1)</td>
+      <td class="num">never, in practice</td>
+      <td><code>g_reg_it</code> is 40,000,000, so after 50,000 updates this is still 0.9988. The L2
+      penalty on <code>g</code> is effectively constant. Treat it as a fixed regulariser rather than
+      a schedule.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p>The order is the point, and it is the order of dependency. Forgetting comes first so nothing
+trusts an empty memory. Then memory is allowed into inference. Then the consistency terms start to
+bite. Write strength arrives last, once there is something worth writing. Reverse any two and the
+run fails in a way that looks like a bug in the model.</p>
 
 <div class="note">
   <span class="h">Read this before judging an early run</span>
@@ -743,13 +1318,57 @@ representations and then let go.</figcaption>
   being phased in. A run that looks mediocre at step 2,000 is simply a run at step 2,000.</p>
 </div>
 
-<h2><span class="num">06</span>Every metric, in plain terms</h2>
+<h2><span class="num">08</span>Every metric, in plain terms</h2>
 
 <p><code>run_tem.py</code> appends two lines to <code>summaries.log</code> every 100 updates. These
 are real numbers from a short run of this code:</p>
 
 <pre><code>MaxHebb=0.10516, T=0.10, F=1.00, L=0.01, train_i=200, total_steps=15000
 it=200, lxP=2.25, lxG=6.02, lxGt=6.02, lp=0.07, lg=0.00, aP=89.08, aGinf=15.75, aGt=15.75</code></pre>
+
+<h3>What "loss" means in this model</h3>
+
+<p>A loss is one number that the optimiser tries to make smaller. It is not an error rate and it has
+no upper bound. TEM's is a plain sum of eight terms, assembled in <code>compute_losses</code>, and
+they are not interchangeable. They fall into three kinds:</p>
+
+<ul>
+  <li><strong>Prediction losses.</strong> <code>lx_p</code>, <code>lx_g</code>, <code>lx_gt</code>.
+  Cross-entropy between the true observation and a predicted distribution over the 45 stimuli,
+  measured in nats. These are the ones that mean "was the model right".</li>
+  <li><strong>Consistency losses.</strong> <code>lp</code>, <code>lg</code>, <code>lp_x</code>.
+  Squared error between two of the model's own internal codes. Nothing external is involved. They
+  say "the route you inferred and the route you generated should be the same route", which is what
+  stops the two halves of the model drifting apart into separate solutions.</li>
+  <li><strong>Regularisers.</strong> <code>lg_reg</code>, <code>lp_reg</code>. Penalties on raw
+  activity, with no reference to the data at all. They shape what the codes look like: L2 keeps
+  <code>g</code> small, L1 makes <code>p</code> sparse.</li>
+</ul>
+
+<p>A useful anchor for the cross-entropy terms: predicting all 45 stimuli as equally likely gives
+<code>ln(45) = 3.81</code>. So <code>lxGt = 6.02</code> in the sample log above is worse than
+guessing, which is what an untrained network that is confidently wrong looks like. Below 3.81 the
+model is doing something. The consistency and regularisation terms have no such reference point, and
+only their trend is meaningful.</p>
+
+<h4>How each term is aggregated</h4>
+
+<pre><code><span class="c"># per timestep, then summed over the 75 steps of the sequence</span>
+norm  = 1 / (n_visited_in_batch * 75)
+lx_gt += sum( CE(x, x_gt) * s_visited * x_mult ) * norm
+lp    += sum( 0.5*||p - p_g||&sup2; * s_visited ) * temp * norm
+lg_reg+= sum( ||g||&sup2; * s_visited ) * 0.01 * g_cell_reg * norm
+
+train_loss = lx_p + lx_g + lx_gt + lp + lg + lp_x + lg_reg + lp_reg</code></pre>
+
+<p>Three things to read off that. Every term is masked by <code>s_visited</code>. Every term is
+normalised by how many states in the batch counted, so the numbers stay comparable as that varies.
+And the curriculum scalars multiply the losses directly, so <code>lp</code> and <code>lg</code> are
+near zero early on because <code>temp</code> is near zero, not because the model is doing well.</p>
+
+<p><code>x_mult</code> is the reward weighting: at the six reward and no-reward nodes of the W-maze,
+cross-entropy is multiplied by 26. A model that predicts everything except the reward nodes will show
+a bad loss and a decent accuracy at the same time.</p>
 
 <h3>The three accuracies, and which one counts</h3>
 
@@ -823,8 +1442,11 @@ all.</figcaption>
 
 <h3>The losses</h3>
 
-<p>Each accuracy has a matching cross-entropy loss, plus several consistency and regularisation
-terms. All are printed with the same prefixes.</p>
+<p>Each accuracy has a matching cross-entropy loss, plus the consistency and regularisation terms.
+All are printed with the same prefixes. The <code>which_costs</code> list in
+<code>parameters.py</code> decides which ones are summed into <code>train_loss</code>; the default
+includes all eight below. <code>weight_reg</code>, an L2 penalty on the network weights, is
+implemented but left out of that list.</p>
 
 <div class="tablewrap">
 <table>
@@ -877,7 +1499,7 @@ terms. All are printed with the same prefixes.</p>
 </table>
 </div>
 
-<h2><span class="num">07</span>Actually running it</h2>
+<h2><span class="num">09</span>Actually running it</h2>
 
 <p>Training writes into a dated run folder <em>outside</em> the source directory, and copies the
 scripts it ran alongside the results, so you can always trace an old run back to the code that
@@ -936,7 +1558,7 @@ reproducible even after you edit the source.</figcaption>
 </table>
 </div>
 
-<h2><span class="num">08</span>Reading the results</h2>
+<h2><span class="num">10</span>Reading the results</h2>
 
 <p>Loss curves tell you the model trained. They do not tell you what it learned. Only the cells
 answer that, and the notebook exists to draw them.</p>
@@ -1004,6 +1626,26 @@ nobody designed these cell types in. They emerge from the single objective of pr
 observation, given the split between structure and sense.</figcaption>
 </figure>
 
+<h4>How a rate map is computed</h4>
+
+<p>There is no smoothing over space and no notion of a pixel. <code>rate_map_from_timeseries</code>
+does one thing: bin cell activity by the node the agent was standing on, then average.</p>
+
+<pre><code><span class="c"># plotting_functions.py, one environment</span>
+for each timestep t:
+    bucket[ position[t] ].append( activity[:, t] )
+rate_map[node] = mean( bucket[node] )        <span class="c"># zeros if never visited</span></code></pre>
+
+<p>The result is a table of <code>n_states &times; n_cells</code>, so 52 &times; 120 for the grid
+cells in the default world. <code>square_plot</code> then places those 52 numbers into the shape of
+the environment for display. The optional <code>smoothing</code> argument runs a Savitzky-Golay
+filter along <em>time</em> before binning, not across space.</p>
+
+<p>Two consequences worth keeping in mind. A node the walk never reached reads as exactly zero, which
+looks like silence rather than missing data. And each node's value is an average over every visit,
+including visits arriving from different directions, so a cell that fires only on one approach shows
+up washed out.</p>
+
 <h3>The other number the notebook prints</h3>
 
 <p>Cell 2 reports, per environment, the proportion of visited states predicted correctly:</p>
@@ -1021,7 +1663,7 @@ checkpoint, which is exactly what near-chance looks like.</p>
   <code>index</code> the notebook loaded before drawing any conclusion.</p>
 </div>
 
-<h2><span class="num">09</span>Quick diagnosis</h2>
+<h2><span class="num">11</span>Quick diagnosis</h2>
 
 <div class="tablewrap">
 <table>
